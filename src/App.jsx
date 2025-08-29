@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ethers } from 'ethers';
-import { UploadCloud, DollarSign, BarChart2, Share2, Wallet, CheckCircle, X, Shield, RefreshCw } from 'lucide-react';
+import axios from 'axios';
+import { UploadCloud, DollarSign, BarChart2, Share2, Wallet, CheckCircle, X, Shield, RefreshCw, Users, Crown } from 'lucide-react';
 import { useWallet } from './components/WalletContext';
 
 const formatAddress = (address) => (typeof address === 'string' && address.length > 10) ? `${address.slice(0, 6)}...${address.slice(-4)}` : '';
@@ -71,7 +72,7 @@ const Modal = ({ isOpen, onClose, title, children }) => {
 
 // --- CORE FEATURE COMPONENTS ---
 
-const DATMinting = ({ onMint, walletConnected, isOwner }) => {
+const DATMintingForm = ({ onMint, walletConnected, title, icon, buttonText, disabled: formDisabled }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState('');
@@ -80,14 +81,30 @@ const DATMinting = ({ onMint, walletConnected, isOwner }) => {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
 
+  const allowedFileTypes = ['.txt', '.pdf', '.csv', '.json', '.xml'];
+
+  const handleFileChange = (e) => {
+      const selectedFile = e.target.files[0];
+      if (selectedFile) {
+          const fileExtension = selectedFile.name.slice(selectedFile.name.lastIndexOf('.'));
+          if (allowedFileTypes.includes(fileExtension.toLowerCase())) {
+              setFile(selectedFile);
+              setError('');
+          } else {
+              setFile(null);
+              setError(`Invalid file type. Please upload one of: ${allowedFileTypes.join(', ')}`)
+          }
+      }
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!walletConnected) {
         setError("Please connect your wallet to mint a DAT.");
         return;
     }
-    if (!isOwner) {
-        setError("Only the contract owner can mint new DATs.");
+    if (!file) {
+        setError("Please select a valid file to upload.");
         return;
     }
     setError('');
@@ -95,15 +112,14 @@ const DATMinting = ({ onMint, walletConnected, isOwner }) => {
     setSuccess(false);
 
     try {
-      const uri = `ipfs://${file.name}`;
-      await onMint({ name, description, price: parseFloat(price), uri });
+      await onMint({ name, description, price: parseFloat(price), file });
       
       setName('');
       setDescription('');
       setPrice('');
       setFile(null);
       setSuccess(true);
-      setTimeout(() => setSuccess(false), 5000);
+      setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
         setError(err.message || "An error occurred during minting.");
     } finally {
@@ -111,18 +127,9 @@ const DATMinting = ({ onMint, walletConnected, isOwner }) => {
     }
   };
 
-  if (!isOwner) {
-      return (
-          <Card className="flex-1 min-w-[300px]">
-              <SectionTitle icon={<Shield className="text-yellow-400" />} title="Admin Minting" />
-              <p className="text-center text-yellow-400">Only the contract owner can mint new DATs.</p>
-          </Card>
-      )
-  }
-
   return (
     <Card className="flex-1 min-w-[300px]">
-      <SectionTitle icon={<UploadCloud className="text-purple-400" />} title="Mint a New DAT" />
+      <SectionTitle icon={icon} title={title} />
       <form onSubmit={handleSubmit} className="space-y-4">
         <input type="text" placeholder="Dataset Name" value={name} onChange={(e) => setName(e.target.value)} className="w-full bg-gray-700 text-white p-2 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500" required />
         <textarea placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} className="w-full bg-gray-700 text-white p-2 rounded-lg border border-gray-600 h-24 resize-none focus:outline-none focus:ring-2 focus:ring-purple-500" required />
@@ -133,10 +140,10 @@ const DATMinting = ({ onMint, walletConnected, isOwner }) => {
         <label className="w-full flex items-center justify-center px-4 py-3 bg-gray-700 text-gray-400 rounded-lg border border-dashed border-gray-600 cursor-pointer hover:bg-gray-600 hover:text-white transition">
           <UploadCloud size={20} className="mr-2"/>
           <span>{file ? file.name : 'Upload Dataset File'}</span>
-          <input type="file" className="hidden" onChange={(e) => setFile(e.target.files[0])} required />
+          <input type="file" className="hidden" onChange={handleFileChange} accept={allowedFileTypes.join(',')} required />
         </label>
-        <button type="submit" disabled={minting || !walletConnected || !isOwner} className="w-full bg-purple-600 text-white p-3 rounded-lg font-bold hover:bg-purple-700 transition disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center">
-          {minting ? 'Minting Transaction...' : 'Mint DAT'}
+        <button type="submit" disabled={minting || !walletConnected || formDisabled} className="w-full bg-purple-600 text-white p-3 rounded-lg font-bold hover:bg-purple-700 transition disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center">
+          {minting ? 'Uploading & Minting...' : buttonText}
         </button>
         {error && <p className="text-center text-red-500 text-sm mt-2">{error}</p>}
         {!walletConnected && <p className="text-center text-yellow-400 text-sm mt-2">Connect wallet to enable minting.</p>}
@@ -148,10 +155,18 @@ const DATMinting = ({ onMint, walletConnected, isOwner }) => {
 
 const DATCard = ({ dat, onBuy, currentUserAddress }) => {
     const isOwner = currentUserAddress && dat.owner.toLowerCase() === currentUserAddress.toLowerCase();
+    const isOfficial = dat.type === 'official';
+
     return (
-        <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700 flex flex-col justify-between h-full hover:border-purple-500 transition-colors duration-300">
+        <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700 flex flex-col justify-between h-full hover:border-purple-500 transition-colors duration-300 relative">
+            {isOfficial && (
+                <div className="absolute top-2 right-2 bg-purple-600 text-white text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1">
+                    <Crown size={12} />
+                    <span>Official</span>
+                </div>
+            )}
             <div>
-                <h3 className="font-bold text-lg text-purple-300">{dat.name}</h3>
+                <h3 className="font-bold text-lg text-purple-300 pr-16">{dat.name}</h3>
                 <p className="text-gray-400 text-sm my-2 h-16 overflow-hidden">{dat.description}</p>
                 <p className="text-xs text-gray-500">Owner: {formatAddress(dat.owner)}</p>
             </div>
@@ -169,21 +184,41 @@ const DATCard = ({ dat, onBuy, currentUserAddress }) => {
     );
 };
 
-const Marketplace = ({ dats, onBuy, currentUserAddress, onRefresh, loading }) => (
-  <section className="mt-8">
-    <div className="flex justify-between items-center mb-6">
-      <h2 className="text-3xl font-bold text-white text-center">Available DATs</h2>
-      <button onClick={onRefresh} disabled={loading} className="text-purple-400 hover:text-purple-300 disabled:text-gray-500 disabled:cursor-wait">
-          <RefreshCw className={`transition-transform duration-500 ${loading ? 'animate-spin' : ''}`} />
-      </button>
-    </div>
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-      {dats.map(dat => (
-        <DATCard key={dat.id} dat={dat} onBuy={onBuy} currentUserAddress={currentUserAddress} />
-      ))}
-    </div>
-  </section>
-);
+const Marketplace = ({ dats, onBuy, currentUserAddress, onRefresh, loading }) => {
+    const officialDats = dats.filter(d => d.type === 'official');
+    const communityDats = dats.filter(d => d.type === 'user');
+
+    return (
+      <section className="mt-8">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-3xl font-bold text-white">Marketplace</h2>
+          <button onClick={onRefresh} disabled={loading} className="text-purple-400 hover:text-purple-300 disabled:text-gray-500 disabled:cursor-wait">
+              <RefreshCw className={`transition-transform duration-500 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+        
+        <div>
+            <h3 className="text-2xl font-semibold text-purple-400 mb-4 flex items-center gap-2"><Crown size={20}/> Official DATs</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {officialDats.map(dat => (
+                    <DATCard key={`${dat.type}-${dat.id}`} dat={dat} onBuy={onBuy} currentUserAddress={currentUserAddress} />
+                ))}
+            </div>
+            {officialDats.length === 0 && !loading && <p className="text-gray-500">No official DATs available at the moment.</p>}
+        </div>
+
+        <div className="mt-12">
+            <h3 className="text-2xl font-semibold text-purple-400 mb-4 flex items-center gap-2"><Users size={20}/> Community DATs</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {communityDats.map(dat => (
+                    <DATCard key={`${dat.type}-${dat.id}`} dat={dat} onBuy={onBuy} currentUserAddress={currentUserAddress} />
+                ))}
+            </div>
+            {communityDats.length === 0 && !loading && <p className="text-gray-500">No community-minted DATs available yet.</p>}
+        </div>
+      </section>
+    );
+};
 
 const Dashboard = ({ dats, currentUserAddress }) => {
     const userDats = dats.filter(dat => currentUserAddress && dat.owner.toLowerCase() === currentUserAddress.toLowerCase());
@@ -193,11 +228,11 @@ const Dashboard = ({ dats, currentUserAddress }) => {
     return (
         <div className="flex flex-col md:flex-row gap-6">
             <Card className="flex-1">
-                <SectionTitle icon={<BarChart2 className="text-purple-400" />} title="Usage Tracking" />
+                <SectionTitle icon={<BarChart2 className="text-purple-400" />} title="My DATs Usage" />
                 {userDats.length > 0 ? (
                     <ul className="space-y-3">
                         {userDats.map(dat => (
-                            <li key={dat.id} className="text-gray-300 flex justify-between items-center">
+                            <li key={`${dat.type}-${dat.id}`} className="text-gray-300 flex justify-between items-center">
                                 <span>{dat.name}</span>
                                 <span className="font-mono bg-gray-700 px-2 py-1 rounded text-sm text-purple-300">{dat.consumption || 0} calls</span>
                             </li>
@@ -208,7 +243,7 @@ const Dashboard = ({ dats, currentUserAddress }) => {
                 )}
             </Card>
             <Card className="flex-1">
-                <SectionTitle icon={<Share2 className="text-purple-400" />} title="Revenue Distribution" />
+                <SectionTitle icon={<Share2 className="text-purple-400" />} title="My Revenue" />
                 {userDats.length > 0 ? (
                     <div className="text-center">
                         <p className="text-gray-400">Total Estimated Earnings</p>
@@ -227,7 +262,7 @@ const Dashboard = ({ dats, currentUserAddress }) => {
 // --- MAIN APP COMPONENT ---
 
 export default function App() {
-  const { account, contract, connectWallet, isConnected, error: walletError, provider } = useWallet();
+  const { account, contract, userContract, connectWallet, isConnected, error: walletError, provider } = useWallet();
   const [dats, setDats] = useState([]);
   const [isOwner, setIsOwner] = useState(false);
   const [balance, setBalance] = useState(0);
@@ -237,38 +272,78 @@ export default function App() {
   const [purchaseSuccess, setPurchaseSuccess] = useState(false);
   const [loadingDats, setLoadingDats] = useState(false);
 
+  const uploadFileToPinata = async (file) => {
+      const url = `https://api.pinata.cloud/pinning/pinFileToIPFS`;
+      let data = new FormData();
+      data.append('file', file);
+
+      const metadata = JSON.stringify({
+          name: file.name,
+      });
+      data.append('pinataMetadata', metadata);
+
+      const pinataOptions = JSON.stringify({
+          cidVersion: 0,
+      });
+      data.append('pinataOptions', pinataOptions);
+
+      try {
+          const res = await axios.post(url, data, {
+              maxBodyLength: 'Infinity',
+              headers: {
+                  'Content-Type': `multipart/form-data; boundary=${data._boundary}`,
+                  'Authorization': `Bearer ${import.meta.env.VITE_PINATA_JWT}`
+              }
+          });
+          return res.data.IpfsHash;
+      } catch (error) {
+          console.error("Error uploading file to Pinata: ", error);
+          throw new Error("Failed to upload file to IPFS.")
+      }
+  }
+
   const fetchDats = useCallback(async () => {
-      if (!contract) return;
+      if (!contract || !userContract) return;
       setLoadingDats(true);
       try {
-          const totalSupply = await contract.totalSupply();
-          const fetchedDats = [];
-          for (let i = 1; i <= totalSupply; i++) {
+          const allDats = [];
+          // Fetch from official contract
+          const officialSupply = await contract.totalSupply();
+          for (let i = 1; i <= officialSupply; i++) {
               try {
                   const owner = await contract.ownerOf(i);
                   const metadata = await contract.datMetadata(i);
-                  const priceInEther = ethers.formatEther(metadata.price);
-                  fetchedDats.push({
-                      id: i,
-                      name: metadata.name,
-                      description: metadata.description,
-                      price: parseFloat(priceInEther),
-                      owner: owner,
-                      // Mocking these for now as they are not on-chain
-                      consumption: Math.floor(Math.random() * 1000),
-                      revenue: Math.random() * 100,
+                  allDats.push({
+                      id: i, type: 'official', contract: contract,
+                      name: metadata.name, description: metadata.description,
+                      price: parseFloat(ethers.formatEther(metadata.price)), owner: owner,
+                      consumption: Math.floor(Math.random() * 1000), revenue: Math.random() * 100,
                   });
-              } catch (error) {
-                  console.warn(`Could not fetch metadata for token ${i}:`, error);
-              }
+              } catch (e) { console.warn(`Could not fetch official DAT ${i}:`, e); }
           }
-          setDats(fetchedDats.reverse()); // Show newest first
+
+          // Fetch from user contract
+          const userSupply = await userContract.totalSupply();
+          for (let i = 1; i <= userSupply; i++) {
+              try {
+                  const owner = await userContract.ownerOf(i);
+                  const metadata = await userContract.datMetadata(i);
+                  allDats.push({
+                      id: i, type: 'user', contract: userContract,
+                      name: metadata.name, description: metadata.description,
+                      price: parseFloat(ethers.formatEther(metadata.price)), owner: owner,
+                      consumption: Math.floor(Math.random() * 500), revenue: Math.random() * 50,
+                  });
+              } catch (e) { console.warn(`Could not fetch user DAT ${i}:`, e); }
+          }
+
+          setDats(allDats.sort((a, b) => b.id - a.id)); // Sort by ID desc
       } catch (err) {
           console.error("Failed to fetch DATs:", err);
       } finally {
           setLoadingDats(false);
       }
-  }, [contract]);
+  }, [contract, userContract]);
 
   useEffect(() => {
     const checkOwnershipAndBalance = async () => {
@@ -276,10 +351,8 @@ export default function App() {
         try {
           const ownerAddress = await contract.owner();
           setIsOwner(ownerAddress.toLowerCase() === account.toLowerCase());
-          
           const userBalance = await provider.getBalance(account);
           setBalance(parseFloat(ethers.formatEther(userBalance)));
-
         } catch (err) {
           console.error("Failed to check contract owner or balance:", err);
         }
@@ -290,41 +363,36 @@ export default function App() {
     checkOwnershipAndBalance();
   }, [account, contract, provider, fetchDats]);
 
-  const handleMint = async ({ name, description, price, uri }) => {
-    if (!contract || !isOwner) {
-        throw new Error("Not authorized or contract not available.");
-    }
+  const handleMint = async (mintContract, { name, description, price, file }) => {
+    if (!file) throw new Error("No file provided for minting.");
 
+    // 1. Upload file to Pinata
+    const ipfsHash = await uploadFileToPinata(file);
+    const uri = `ipfs://${ipfsHash}`;
+
+    // 2. Mint the token on the appropriate contract
     const priceInWei = ethers.parseEther(price.toString());
-    const tx = await contract.safeMint(account, uri, name, description, priceInWei);
+    const tx = await mintContract.safeMint(account, uri, name, description, priceInWei);
     await tx.wait();
-    await fetchDats(); // Refetch after minting
+    await fetchDats();
   };
 
   const handleBuyClick = (dat) => {
-      if (!isConnected) {
-          alert("Please connect your wallet to purchase a DAT.");
-          return;
-      }
-      if (balance < dat.price) {
-          alert("Insufficient funds to purchase this DAT.");
-          return;
-      }
+      if (!isConnected) { alert("Please connect your wallet to purchase a DAT."); return; }
+      if (balance < dat.price) { alert("Insufficient funds to purchase this DAT."); return; }
       setSelectedDat(dat);
       setIsModalOpen(true);
       setPurchaseSuccess(false);
   };
 
   const confirmPurchase = async () => {
-      if (!selectedDat || !contract) return;
+      if (!selectedDat || !selectedDat.contract) return;
       setProcessingPurchase(true);
-      
       try {
         const priceInWei = ethers.parseEther(selectedDat.price.toString());
-        const tx = await contract.purchase(selectedDat.id, { value: priceInWei });
+        const tx = await selectedDat.contract.purchase(selectedDat.id, { value: priceInWei });
         await tx.wait();
-
-        await fetchDats(); // Refetch DATs to update ownership
+        await fetchDats();
         setPurchaseSuccess(true);
         setTimeout(() => {
             setIsModalOpen(false);
@@ -341,23 +409,38 @@ export default function App() {
   return (
     <div className="bg-gray-900 text-white min-h-screen font-sans" style={{background: 'radial-gradient(circle at top, #1F2937, #111827)'}}>
       <div className="container mx-auto p-4">
-        <Header 
-          isConnected={isConnected}
-          account={account}
-          onConnect={connectWallet}
-        />
+        <Header isConnected={isConnected} account={account} onConnect={connectWallet} />
         
         {walletError && <div className="text-center text-red-500 bg-red-900/50 p-3 rounded-lg my-4 border border-red-700">{walletError}</div>}
         
         <main className="mt-8">
           <div className="flex flex-col lg:flex-row gap-6">
             <div className="lg:w-1/3">
-              <DATMinting onMint={handleMint} walletConnected={isConnected} isOwner={isOwner} />
+                <DATMintingForm 
+                    onMint={(data) => handleMint(userContract, data)}
+                    walletConnected={isConnected}
+                    title="Mint a Community DAT"
+                    icon={<Users className="text-purple-400"/>}
+                    buttonText="Mint My DAT"
+                />
             </div>
             <div className="lg:w-2/3">
               <Dashboard dats={dats} currentUserAddress={account} />
             </div>
           </div>
+
+          {isOwner && (
+              <div className="mt-6">
+                  <DATMintingForm 
+                      onMint={(data) => handleMint(contract, data)}
+                      walletConnected={isConnected}
+                      title="Mint an Official DAT"
+                      icon={<Shield className="text-yellow-400"/>}
+                      buttonText="Mint Official DAT"
+                      disabled={!isOwner}
+                  />
+              </div>
+          )}
 
           <Marketplace dats={dats} onBuy={handleBuyClick} currentUserAddress={account} onRefresh={fetchDats} loading={loadingDats} />
         </main>

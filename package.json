@@ -8,11 +8,13 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "deploy": "./node_modules/.bin/hardhat run scripts/deploy.js --network lazai"
+    "deploy": "./node_modules/.bin/hardhat run scripts/deploy.js --network lazai",
+    "deploy:user": "./node_modules/.bin/hardhat run scripts/deployUserDAT.cjs --network lazai"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.4.0",
     "@tailwindcss/vite": "^4.1.12",
+    "axios": "^1.7.2",
     "ethers": "^6.15.0",
     "lucide-react": "^0.542.0",
     "react": "^19.1.1",

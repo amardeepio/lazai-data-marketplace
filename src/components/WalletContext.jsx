@@ -1,9 +1,12 @@
 import React, { useState, useEffect, createContext, useContext } from 'react';
 import { ethers } from 'ethers';
 import LazaiDATArtifact from '../lazaiDAT.json';
+import UserDATArtifact from '../userDAT.json'; // Import new ABI
 
 const lazaiDATAddress = import.meta.env.VITE_CONTRACT_ADDRESS;
+const userDATAddress = import.meta.env.VITE_USER_CONTRACT_ADDRESS; // New contract address
 const lazaiDATAbi = LazaiDATArtifact.abi;
+const userDATAbi = UserDATArtifact.abi; // New ABI
 
 const WalletContext = createContext(null);
 
@@ -13,6 +16,7 @@ export const WalletProvider = ({ children }) => {
   const [account, setAccount] = useState(null);
   const [provider, setProvider] = useState(null);
   const [contract, setContract] = useState(null);
+  const [userContract, setUserContract] = useState(null); // State for user contract
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -26,8 +30,10 @@ export const WalletProvider = ({ children }) => {
           if (accounts.length > 0 && accounts[0]) {
             const signer = await newProvider.getSigner();
             setAccount(signer.address);
-            const newContract = new ethers.Contract(lazaiDATAddress, lazaiDATAbi, signer);
-            setContract(newContract);
+            const officialContract = new ethers.Contract(lazaiDATAddress, lazaiDATAbi, signer);
+            const communityContract = new ethers.Contract(userDATAddress, userDATAbi, signer);
+            setContract(officialContract);
+            setUserContract(communityContract);
           }
 
           window.ethereum.on('accountsChanged', (accounts) => {
@@ -37,6 +43,7 @@ export const WalletProvider = ({ children }) => {
             } else {
               setAccount(null);
               setContract(null);
+              setUserContract(null);
             }
           });
 
@@ -65,8 +72,10 @@ export const WalletProvider = ({ children }) => {
       if (accounts.length > 0) {
         const signer = await provider.getSigner();
         setAccount(signer.address);
-        const newContract = new ethers.Contract(lazaiDATAddress, lazaiDATAbi, signer);
-        setContract(newContract);
+        const officialContract = new ethers.Contract(lazaiDATAddress, lazaiDATAbi, signer);
+        const communityContract = new ethers.Contract(user_DATAddress, userDATAbi, signer);
+        setContract(officialContract);
+        setUserContract(communityContract);
         setError('');
       }
     } catch (err) {
@@ -78,12 +87,14 @@ export const WalletProvider = ({ children }) => {
   const disconnectWallet = () => {
     setAccount(null);
     setContract(null);
+    setUserContract(null);
   };
 
   const value = {
     account,
     provider,
-    contract,
+    contract, // Official DAT contract
+    userContract, // User-minteable DAT contract
     connectWallet,
     disconnectWallet,
     error,

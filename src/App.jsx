@@ -4,6 +4,7 @@ import axios from 'axios';
 import { UploadCloud, DollarSign, BarChart2, Share2, Wallet, CheckCircle, X, Shield, RefreshCw, Users, Crown, Download } from 'lucide-react';
 import { useWallet } from './components/WalletContext';
 import toast, { Toaster } from 'react-hot-toast';
+import ChatWidget, { FloatingChatButton } from './components/ChatWidget';
 
 const formatAddress = (address) => (typeof address === 'string' && address.length > 10) ? `${address.slice(0, 6)}...${address.slice(-4)}` : '';
 
@@ -325,13 +326,12 @@ const Dashboard = ({ dats, currentUserAddress, onAccessData }) => {
                     <ul className="space-y-3">
                         {userDats.map(dat => (
                             <li key={`${dat.type}-${dat.id}`} className="text-gray-300 flex justify-between items-center bg-gray-900/50 p-3 rounded-lg">
-                                <div>
+                                <div className="flex-grow text-left">
                                     <span className="font-semibold">{dat.name}</span>
-                                    <span className="ml-4 font-mono bg-gray-700 px-2 py-1 rounded text-sm text-purple-300">{dat.consumption || 0} calls</span>
                                 </div>
                                 <button 
                                     onClick={() => onAccessData(dat)}
-                                    className="bg-blue-600 text-white px-3 py-1 rounded-lg text-sm font-semibold hover:bg-blue-700 transition flex items-center gap-2 cursor-pointer"
+                                    className="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 transition flex items-center gap-2 cursor-pointer flex-shrink-0"
                                 >
                                     <Download size={16} />
                                     Access Data
@@ -374,6 +374,7 @@ export default function App() {
   const [loadingDats, setLoadingDats] = useState(false);
   const [purchaseProgress, setPurchaseProgress] = useState(0);
   const [purchaseStep, setPurchaseStep] = useState('');
+  const [isChatVisible, setIsChatVisible] = useState(false);
 
   const fetchDats = useCallback(async () => {
       if (!contract || !userContract) return;
@@ -626,6 +627,9 @@ export default function App() {
               </div>
           )}
       </Modal>
+
+       <ChatWidget isVisible={isChatVisible} onClose={() => setIsChatVisible(false)} />
+       <FloatingChatButton onClick={() => setIsChatVisible(true)} />
     </div>
   );
 }

@@ -73,7 +73,7 @@ export const WalletProvider = ({ children }) => {
         const signer = await provider.getSigner();
         setAccount(signer.address);
         const officialContract = new ethers.Contract(lazaiDATAddress, lazaiDATAbi, signer);
-        const communityContract = new ethers.Contract(user_DATAddress, userDATAbi, signer);
+        const communityContract = new ethers.Contract(userDATAddress, userDATAbi, signer);
         setContract(officialContract);
         setUserContract(communityContract);
         setError('');

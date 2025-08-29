@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ethers } from 'ethers';
 import axios from 'axios';
-import { UploadCloud, DollarSign, BarChart2, Share2, Wallet, CheckCircle, X, Shield, RefreshCw, Users, Crown } from 'lucide-react';
+import { UploadCloud, DollarSign, BarChart2, Share2, Wallet, CheckCircle, X, Shield, RefreshCw, Users, Crown, Download } from 'lucide-react';
 import { useWallet } from './components/WalletContext';
 
 const formatAddress = (address) => (typeof address === 'string' && address.length > 10) ? `${address.slice(0, 6)}...${address.slice(-4)}` : '';
@@ -220,7 +220,7 @@ const Marketplace = ({ dats, onBuy, currentUserAddress, onRefresh, loading }) =>
     );
 };
 
-const Dashboard = ({ dats, currentUserAddress }) => {
+const Dashboard = ({ dats, currentUserAddress, onAccessData }) => {
     const userDats = dats.filter(dat => currentUserAddress && dat.owner.toLowerCase() === currentUserAddress.toLowerCase());
     const totalRevenue = userDats.reduce((acc, dat) => acc + (dat.revenue || 0), 0);
     const totalConsumption = userDats.reduce((acc, dat) => acc + (dat.consumption || 0), 0);
@@ -228,13 +228,22 @@ const Dashboard = ({ dats, currentUserAddress }) => {
     return (
         <div className="flex flex-col md:flex-row gap-6">
             <Card className="flex-1">
-                <SectionTitle icon={<BarChart2 className="text-purple-400" />} title="My DATs Usage" />
+                <SectionTitle icon={<BarChart2 className="text-purple-400" />} title="My DATs" />
                 {userDats.length > 0 ? (
                     <ul className="space-y-3">
                         {userDats.map(dat => (
-                            <li key={`${dat.type}-${dat.id}`} className="text-gray-300 flex justify-between items-center">
-                                <span>{dat.name}</span>
-                                <span className="font-mono bg-gray-700 px-2 py-1 rounded text-sm text-purple-300">{dat.consumption || 0} calls</span>
+                            <li key={`${dat.type}-${dat.id}`} className="text-gray-300 flex justify-between items-center bg-gray-900/50 p-3 rounded-lg">
+                                <div>
+                                    <span className="font-semibold">{dat.name}</span>
+                                    <span className="ml-4 font-mono bg-gray-700 px-2 py-1 rounded text-sm text-purple-300">{dat.consumption || 0} calls</span>
+                                </div>
+                                <button 
+                                    onClick={() => onAccessData(dat)}
+                                    className="bg-blue-600 text-white px-3 py-1 rounded-lg text-sm font-semibold hover:bg-blue-700 transition flex items-center gap-2"
+                                >
+                                    <Download size={16} />
+                                    Access Data
+                                </button>
                             </li>
                         ))}
                     </ul>
@@ -346,22 +355,44 @@ export default function App() {
   }, [contract, userContract]);
 
   useEffect(() => {
-    const checkOwnershipAndBalance = async () => {
-      if (account && contract && provider) {
-        try {
-          const ownerAddress = await contract.owner();
-          setIsOwner(ownerAddress.toLowerCase() === account.toLowerCase());
-          const userBalance = await provider.getBalance(account);
-          setBalance(parseFloat(ethers.formatEther(userBalance)));
-        } catch (err) {
-          console.error("Failed to check contract owner or balance:", err);
+    if (contract && userContract) {
+      const checkOwnershipAndBalance = async () => {
+        if (account && provider) {
+          try {
+            const ownerAddress = await contract.owner();
+            setIsOwner(ownerAddress.toLowerCase() === account.toLowerCase());
+            const userBalance = await provider.getBalance(account);
+            setBalance(parseFloat(ethers.formatEther(userBalance)));
+          } catch (err) {
+            console.error("Failed to check contract owner or balance:", err);
+          }
         }
-      }
-    };
+      };
 
-    fetchDats();
-    checkOwnershipAndBalance();
-  }, [account, contract, provider, fetchDats]);
+      fetchDats();
+      checkOwnershipAndBalance();
+
+      // Event listeners for real-time updates
+      const handleContractEvent = (tokenId, to, from, event) => {
+        console.log('Contract event received:', { tokenId, to, from, event });
+        // Simple refresh for any mint or transfer event
+        fetchDats();
+      };
+
+      contract.on('DATMinted', handleContractEvent);
+      contract.on('Transfer', handleContractEvent);
+      userContract.on('DATMinted', handleContractEvent);
+      userContract.on('Transfer', handleContractEvent);
+
+      // Cleanup listeners on component unmount
+      return () => {
+        contract.off('DATMinted', handleContractEvent);
+        contract.off('Transfer', handleContractEvent);
+        userContract.off('DATMinted', handleContractEvent);
+        userContract.off('Transfer', handleContractEvent);
+      };
+    }
+  }, [account, contract, userContract, provider, fetchDats]);
 
   const handleMint = async (mintContract, { name, description, price, file }) => {
     if (!file) throw new Error("No file provided for minting.");
@@ -374,6 +405,7 @@ export default function App() {
     const priceInWei = ethers.parseEther(price.toString());
     const tx = await mintContract.safeMint(account, uri, name, description, priceInWei);
     await tx.wait();
+    await fetchDats();
     await fetchDats();
   };
 
@@ -406,6 +438,27 @@ export default function App() {
       }
   };
 
+  const handleAccessData = async (dat) => {
+    if (!account) {
+      alert('Please connect your wallet.');
+      return;
+    }
+    try {
+      const url = `http://localhost:3001/api/data/${dat.type}/${dat.id}?userAddress=${account}`;
+      const response = await axios.get(url);
+
+      if (response.data.success) {
+        window.open(response.data.dataUrl, '_blank');
+      } else {
+        alert(`Failed to access data: ${response.data.message}`);
+      }
+    } catch (error) {
+      console.error('Error accessing data:', error);
+      const errorMessage = error.response?.data?.message || 'An error occurred while fetching data.';
+      alert(`Failed to access data: ${errorMessage}`);
+    }
+  };
+
   return (
     <div className="bg-gray-900 text-white min-h-screen font-sans" style={{background: 'radial-gradient(circle at top, #1F2937, #111827)'}}>
       <div className="container mx-auto p-4">
@@ -425,7 +478,7 @@ export default function App() {
                 />
             </div>
             <div className="lg:w-2/3">
-              <Dashboard dats={dats} currentUserAddress={account} />
+              <Dashboard dats={dats} currentUserAddress={account} onAccessData={handleAccessData} />
             </div>
           </div>
 

@@ -18,11 +18,12 @@
     "@tailwindcss/vite": "^4.1.12",
     "axios": "^1.7.2",
     "cors": "^2.8.5",
-    "express": "^4.19.2",
     "ethers": "^6.15.0",
+    "express": "^4.19.2",
     "lucide-react": "^0.542.0",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "react-hot-toast": "^2.6.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.33.0",

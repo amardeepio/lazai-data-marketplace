@@ -3,6 +3,7 @@ import { ethers } from 'ethers';
 import axios from 'axios';
 import { UploadCloud, DollarSign, BarChart2, Share2, Wallet, CheckCircle, X, Shield, RefreshCw, Users, Crown, Download } from 'lucide-react';
 import { useWallet } from './components/WalletContext';
+import toast, { Toaster } from 'react-hot-toast';
 
 const formatAddress = (address) => (typeof address === 'string' && address.length > 10) ? `${address.slice(0, 6)}...${address.slice(-4)}` : '';
 
@@ -139,29 +140,35 @@ const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!walletConnected || !mintingContract) {
-        setError("Please connect your wallet to mint a DAT.");
+        toast.error("Please connect your wallet to mint a DAT.");
         return;
     }
     if (!file) {
-        setError("Please select a valid file to upload.");
+        toast.error("Please select a valid file to upload.");
         return;
     }
     setError('');
     setMinting(true);
 
+    const toastId = toast.loading('Starting minting process...');
+
     try {
       setMintingStep('Uploading data to IPFS...');
+      toast.loading('Uploading data to IPFS...', { id: toastId });
       const ipfsHash = await uploadFileToPinata(file);
       const uri = `ipfs://${ipfsHash}`;
 
       setMintingStep('Awaiting wallet confirmation...');
+      toast.loading('Awaiting wallet confirmation...', { id: toastId });
       const priceInWei = ethers.parseEther(price.toString());
       const tx = await mintingContract.safeMint(account, uri, name, description, priceInWei);
       
       setMintingStep('Minting DAT on the blockchain...');
+      toast.loading('Minting DAT on the blockchain...', { id: toastId });
       await tx.wait();
 
       setMintingStep('Success!');
+      toast.success('DAT Minted Successfully!', { id: toastId });
       await onMintSuccess();
       
       // Reset form
@@ -173,7 +180,8 @@ const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title
 
     } catch (err) {
         console.error("Minting failed:", err);
-        setError(err.message || "An error occurred during minting.");
+        const errorMessage = err.reason || err.message || "An error occurred during minting.";
+        toast.error(errorMessage, { id: toastId });
         setMintingStep('');
     } finally {
         setMinting(false);
@@ -249,9 +257,28 @@ const DATCard = ({ dat, onBuy, currentUserAddress }) => {
     );
 };
 
+const SkeletonCard = () => (
+    <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700 flex flex-col justify-between h-full">
+        <div className="animate-pulse">
+            <div className="h-6 bg-gray-700 rounded w-3/4 mb-4"></div>
+            <div className="h-4 bg-gray-700 rounded w-full mb-2"></div>
+            <div className="h-4 bg-gray-700 rounded w-5/6 mb-4"></div>
+            <div className="h-4 bg-gray-700 rounded w-1/2"></div>
+        </div>
+        <div className="mt-4 flex justify-between items-center">
+            <div className="h-8 bg-gray-700 rounded w-1/3"></div>
+            <div className="h-10 bg-gray-700 rounded w-1/4"></div>
+        </div>
+    </div>
+);
+
 const Marketplace = ({ dats, onBuy, currentUserAddress, onRefresh, loading }) => {
     const officialDats = dats.filter(d => d.type === 'official');
     const communityDats = dats.filter(d => d.type === 'user');
+
+    const renderSkeletons = (count) => (
+        Array(count).fill(0).map((_, i) => <SkeletonCard key={i} />)
+    );
 
     return (
       <section className="mt-8">
@@ -265,21 +292,21 @@ const Marketplace = ({ dats, onBuy, currentUserAddress, onRefresh, loading }) =>
         <div>
             <h3 className="text-2xl font-semibold text-purple-400 mb-4 flex items-center gap-2"><Crown size={20}/> Official DATs</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {officialDats.map(dat => (
+                {loading ? renderSkeletons(4) : officialDats.map(dat => (
                     <DATCard key={`${dat.type}-${dat.id}`} dat={dat} onBuy={onBuy} currentUserAddress={currentUserAddress} />
                 ))}
             </div>
-            {officialDats.length === 0 && !loading && <p className="text-gray-500">No official DATs available at the moment.</p>}
+            {!loading && officialDats.length === 0 && <p className="text-gray-500 mt-4">No official DATs available at the moment.</p>}
         </div>
 
         <div className="mt-12">
             <h3 className="text-2xl font-semibold text-purple-400 mb-4 flex items-center gap-2"><Users size={20}/> Community DATs</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {communityDats.map(dat => (
+                {loading ? renderSkeletons(8) : communityDats.map(dat => (
                     <DATCard key={`${dat.type}-${dat.id}`} dat={dat} onBuy={onBuy} currentUserAddress={currentUserAddress} />
                 ))}
             </div>
-            {communityDats.length === 0 && !loading && <p className="text-gray-500">No community-minted DATs available yet.</p>}
+            {!loading && communityDats.length === 0 && <p className="text-gray-500 mt-4">No community-minted DATs available yet.</p>}
         </div>
       </section>
     );
@@ -386,15 +413,16 @@ export default function App() {
           setDats(allDats.sort((a, b) => b.id - a.id)); // Sort by ID desc
       } catch (err) {
           console.error("Failed to fetch DATs:", err);
+          toast.error("Failed to fetch DATs from the network.");
       } finally {
           setLoadingDats(false);
       }
   }, [contract, userContract]);
 
   useEffect(() => {
-    if (contract && userContract) {
+    if (contract && userContract && provider) {
       const checkOwnershipAndBalance = async () => {
-        if (account && provider) {
+        if (account) {
           try {
             const ownerAddress = await contract.owner();
             setIsOwner(ownerAddress.toLowerCase() === account.toLowerCase());
@@ -409,31 +437,35 @@ export default function App() {
       fetchDats();
       checkOwnershipAndBalance();
 
-      // Event listeners for real-time updates
-      const handleContractEvent = (tokenId, to, from, event) => {
-        console.log('Contract event received:', { tokenId, to, from, event });
-        // Simple refresh for any mint or transfer event
+      // Event listener for real-time updates
+      const handleTransfer = (from, to, tokenId) => {
+        console.log('Transfer event received:', { from, to, tokenId });
+        // Ignore the initial load of events
+        if (from === ethers.ZeroAddress) {
+            toast.success('New DAT minted! Marketplace updated.');
+        } else {
+            toast.success('DAT transferred! Marketplace updated.');
+        }
         fetchDats();
       };
 
-      contract.on('DATMinted', handleContractEvent);
-      contract.on('Transfer', handleContractEvent);
-      userContract.on('DATMinted', handleContractEvent);
-      userContract.on('Transfer', handleContractEvent);
+      const officialFilter = contract.filters.Transfer();
+      const userFilter = userContract.filters.Transfer();
+
+      provider.on(officialFilter, handleTransfer);
+      provider.on(userFilter, handleTransfer);
 
       // Cleanup listeners on component unmount
       return () => {
-        contract.off('DATMinted', handleContractEvent);
-        contract.off('Transfer', handleContractEvent);
-        userContract.off('DATMinted', handleContractEvent);
-        userContract.off('Transfer', handleContractEvent);
+        provider.off(officialFilter, handleTransfer);
+        provider.off(userFilter, handleTransfer);
       };
     }
   }, [account, contract, userContract, provider, fetchDats]);
 
   const handleBuyClick = (dat) => {
-      if (!isConnected) { alert("Please connect your wallet to purchase a DAT."); return; }
-      if (balance < dat.price) { alert("Insufficient funds to purchase this DAT."); return; }
+      if (!isConnected) { toast.error("Please connect your wallet to purchase a DAT."); return; }
+      if (balance < dat.price) { toast.error("Insufficient funds to purchase this DAT."); return; }
       setSelectedDat(dat);
       setIsModalOpen(true);
       setPurchaseSuccess(false);
@@ -445,16 +477,20 @@ export default function App() {
       setPurchaseProgress(0);
       setPurchaseStep('');
 
+      const toastId = toast.loading('Processing purchase...');
+
       try {
         const priceInWei = ethers.parseEther(selectedDat.price.toString());
 
         setPurchaseStep('Awaiting wallet confirmation...');
         setPurchaseProgress(10);
+        toast.loading('Awaiting wallet confirmation...', { id: toastId });
 
         const tx = await selectedDat.contract.purchase(selectedDat.id, { value: priceInWei });
         
         setPurchaseStep('Processing transaction...');
         setPurchaseProgress(50);
+        toast.loading('Processing transaction on the blockchain...', { id: toastId });
 
         await tx.wait();
 
@@ -464,6 +500,7 @@ export default function App() {
         await fetchDats();
         setPurchaseSuccess(true);
         setPurchaseProgress(100);
+        toast.success('Purchase Successful!', { id: toastId });
         
         setTimeout(() => {
             setIsModalOpen(false);
@@ -474,7 +511,8 @@ export default function App() {
         }, 2000);
       } catch (err) {
           console.error("Purchase failed:", err);
-          alert("Purchase failed! See console for details.");
+          const errorMessage = err.reason || "Purchase failed! See console for details.";
+          toast.error(errorMessage, { id: toastId });
           setIsModalOpen(false); // Close modal on failure
           setProcessingPurchase(false);
           setPurchaseProgress(0);
@@ -484,27 +522,39 @@ export default function App() {
 
   const handleAccessData = async (dat) => {
     if (!account) {
-      alert('Please connect your wallet.');
+      toast.error('Please connect your wallet.');
       return;
     }
+    const toastId = toast.loading('Verifying ownership...');
     try {
       const url = `/api/data/${dat.type}/${dat.id}?userAddress=${account}`;
       const response = await axios.get(url);
 
       if (response.data.success) {
+        toast.success('Ownership verified! Opening data...', { id: toastId });
         window.open(response.data.dataUrl, '_blank');
       } else {
-        alert(`Failed to access data: ${response.data.message}`);
+        toast.error(`Failed to access data: ${response.data.message}`, { id: toastId });
       }
     } catch (error) {
       console.error('Error accessing data:', error);
       const errorMessage = error.response?.data?.message || 'An error occurred while fetching data.';
-      alert(`Failed to access data: ${errorMessage}`);
+      toast.error(`Failed to access data: ${errorMessage}`, { id: toastId });
     }
   };
 
   return (
     <div className="bg-gray-900 text-white min-h-screen font-sans" style={{background: 'radial-gradient(circle at top, #1F2937, #111827)'}}>
+      <Toaster
+        position="top-center"
+        reverseOrder={false}
+        toastOptions={{
+          style: {
+            background: '#334155',
+            color: '#fff',
+          },
+        }}
+      />
       <div className="container mx-auto p-4">
         <Header isConnected={isConnected} account={account} onConnect={connectWallet} />
         

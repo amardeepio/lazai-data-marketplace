@@ -50,14 +50,14 @@ const SectionTitle = ({ icon, title }) => (
     </h2>
 );
 
-const Modal = ({ isOpen, onClose, title, children }) => {
+const Modal = ({ isOpen, onClose, title, children, disableClose = false }) => {
     if (!isOpen) return null;
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex justify-center items-center z-50 p-4">
             <div className="bg-gray-800 rounded-xl border border-gray-700 shadow-2xl w-full max-w-md">
                 <div className="flex justify-between items-center p-4 border-b border-gray-700">
                     <h3 className="text-lg font-semibold text-white">{title}</h3>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white">
+                    <button onClick={onClose} className="text-gray-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed" disabled={disableClose}>
                         <X size={24} />
                     </button>
                 </div>
@@ -69,16 +69,29 @@ const Modal = ({ isOpen, onClose, title, children }) => {
     );
 };
 
+const ProgressBar = ({ progress, text }) => (
+    <div className="w-full">
+        <div className="flex justify-between mb-1">
+            <span className="text-base font-medium text-purple-300">{text}</span>
+            <span className="text-sm font-medium text-purple-300">{Math.round(progress)}%</span>
+        </div>
+        <div className="w-full bg-gray-700 rounded-full h-2.5">
+            <div className="bg-purple-600 h-2.5 rounded-full" style={{ width: `${progress}%`, transition: 'width 0.3s ease-in-out' }}></div>
+        </div>
+    </div>
+);
+
 
 // --- CORE FEATURE COMPONENTS ---
 
-const DATMintingForm = ({ onMint, walletConnected, title, icon, buttonText, disabled: formDisabled }) => {
+const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title, icon, buttonText, disabled: formDisabled }) => {
+  const { account } = useWallet();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState('');
   const [file, setFile] = useState(null);
   const [minting, setMinting] = useState(false);
-  const [success, setSuccess] = useState(false);
+  const [mintingStep, setMintingStep] = useState('');
   const [error, setError] = useState('');
 
   const allowedFileTypes = ['.txt', '.pdf', '.csv', '.json', '.xml'];
@@ -97,9 +110,35 @@ const DATMintingForm = ({ onMint, walletConnected, title, icon, buttonText, disa
       }
   }
 
+  const uploadFileToPinata = async (file) => {
+      const url = `https://api.pinata.cloud/pinning/pinFileToIPFS`;
+      let data = new FormData();
+      data.append('file', file);
+
+      const metadata = JSON.stringify({ name: file.name });
+      data.append('pinataMetadata', metadata);
+
+      const pinataOptions = JSON.stringify({ cidVersion: 0 });
+      data.append('pinataOptions', pinataOptions);
+
+      try {
+          const res = await axios.post(url, data, {
+              maxBodyLength: 'Infinity',
+              headers: {
+                  'Content-Type': `multipart/form-data; boundary=${data._boundary}`,
+                  'Authorization': `Bearer ${import.meta.env.VITE_PINATA_JWT}`
+              }
+          });
+          return res.data.IpfsHash;
+      } catch (error) {
+          console.error("Error uploading file to Pinata: ", error);
+          throw new Error("Failed to upload file to IPFS.")
+      }
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!walletConnected) {
+    if (!walletConnected || !mintingContract) {
         setError("Please connect your wallet to mint a DAT.");
         return;
     }
@@ -109,19 +148,33 @@ const DATMintingForm = ({ onMint, walletConnected, title, icon, buttonText, disa
     }
     setError('');
     setMinting(true);
-    setSuccess(false);
 
     try {
-      await onMint({ name, description, price: parseFloat(price), file });
+      setMintingStep('Uploading data to IPFS...');
+      const ipfsHash = await uploadFileToPinata(file);
+      const uri = `ipfs://${ipfsHash}`;
+
+      setMintingStep('Awaiting wallet confirmation...');
+      const priceInWei = ethers.parseEther(price.toString());
+      const tx = await mintingContract.safeMint(account, uri, name, description, priceInWei);
       
+      setMintingStep('Minting DAT on the blockchain...');
+      await tx.wait();
+
+      setMintingStep('Success!');
+      await onMintSuccess();
+      
+      // Reset form
       setName('');
       setDescription('');
       setPrice('');
       setFile(null);
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
+      setTimeout(() => setMintingStep(''), 3000);
+
     } catch (err) {
+        console.error("Minting failed:", err);
         setError(err.message || "An error occurred during minting.");
+        setMintingStep('');
     } finally {
         setMinting(false);
     }
@@ -142,12 +195,24 @@ const DATMintingForm = ({ onMint, walletConnected, title, icon, buttonText, disa
           <span>{file ? file.name : 'Upload Dataset File'}</span>
           <input type="file" className="hidden" onChange={handleFileChange} accept={allowedFileTypes.join(',')} required />
         </label>
-        <button type="submit" disabled={minting || !walletConnected || formDisabled} className="w-full bg-purple-600 text-white p-3 rounded-lg font-bold hover:bg-purple-700 transition disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center">
-          {minting ? 'Uploading & Minting...' : buttonText}
-        </button>
+        
+        {minting && mintingStep ? (
+          <div className="flex items-center justify-center gap-2 text-yellow-400 p-3 bg-gray-700 rounded-lg">
+            {mintingStep !== 'Success!' ? (
+              <RefreshCw size={20} className="animate-spin" />
+            ) : (
+              <CheckCircle size={20} className="text-green-500" />
+            )}
+            <span>{mintingStep}</span>
+          </div>
+        ) : (
+          <button type="submit" disabled={minting || !walletConnected || formDisabled} className="w-full bg-purple-600 text-white p-3 rounded-lg font-bold hover:bg-purple-700 transition disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center">
+            {buttonText}
+          </button>
+        )}
+
         {error && <p className="text-center text-red-500 text-sm mt-2">{error}</p>}
         {!walletConnected && <p className="text-center text-yellow-400 text-sm mt-2">Connect wallet to enable minting.</p>}
-        {success && <p className="text-center text-green-500 text-sm">Transaction sent! DAT will appear after confirmation.</p>}
       </form>
     </Card>
   );
@@ -239,7 +304,7 @@ const Dashboard = ({ dats, currentUserAddress, onAccessData }) => {
                                 </div>
                                 <button 
                                     onClick={() => onAccessData(dat)}
-                                    className="bg-blue-600 text-white px-3 py-1 rounded-lg text-sm font-semibold hover:bg-blue-700 transition flex items-center gap-2"
+                                    className="bg-blue-600 text-white px-3 py-1 rounded-lg text-sm font-semibold hover:bg-blue-700 transition flex items-center gap-2 cursor-pointer"
                                 >
                                     <Download size={16} />
                                     Access Data
@@ -280,36 +345,8 @@ export default function App() {
   const [processingPurchase, setProcessingPurchase] = useState(false);
   const [purchaseSuccess, setPurchaseSuccess] = useState(false);
   const [loadingDats, setLoadingDats] = useState(false);
-
-  const uploadFileToPinata = async (file) => {
-      const url = `https://api.pinata.cloud/pinning/pinFileToIPFS`;
-      let data = new FormData();
-      data.append('file', file);
-
-      const metadata = JSON.stringify({
-          name: file.name,
-      });
-      data.append('pinataMetadata', metadata);
-
-      const pinataOptions = JSON.stringify({
-          cidVersion: 0,
-      });
-      data.append('pinataOptions', pinataOptions);
-
-      try {
-          const res = await axios.post(url, data, {
-              maxBodyLength: 'Infinity',
-              headers: {
-                  'Content-Type': `multipart/form-data; boundary=${data._boundary}`,
-                  'Authorization': `Bearer ${import.meta.env.VITE_PINATA_JWT}`
-              }
-          });
-          return res.data.IpfsHash;
-      } catch (error) {
-          console.error("Error uploading file to Pinata: ", error);
-          throw new Error("Failed to upload file to IPFS.")
-      }
-  }
+  const [purchaseProgress, setPurchaseProgress] = useState(0);
+  const [purchaseStep, setPurchaseStep] = useState('');
 
   const fetchDats = useCallback(async () => {
       if (!contract || !userContract) return;
@@ -394,21 +431,6 @@ export default function App() {
     }
   }, [account, contract, userContract, provider, fetchDats]);
 
-  const handleMint = async (mintContract, { name, description, price, file }) => {
-    if (!file) throw new Error("No file provided for minting.");
-
-    // 1. Upload file to Pinata
-    const ipfsHash = await uploadFileToPinata(file);
-    const uri = `ipfs://${ipfsHash}`;
-
-    // 2. Mint the token on the appropriate contract
-    const priceInWei = ethers.parseEther(price.toString());
-    const tx = await mintContract.safeMint(account, uri, name, description, priceInWei);
-    await tx.wait();
-    await fetchDats();
-    await fetchDats();
-  };
-
   const handleBuyClick = (dat) => {
       if (!isConnected) { alert("Please connect your wallet to purchase a DAT."); return; }
       if (balance < dat.price) { alert("Insufficient funds to purchase this DAT."); return; }
@@ -420,21 +442,43 @@ export default function App() {
   const confirmPurchase = async () => {
       if (!selectedDat || !selectedDat.contract) return;
       setProcessingPurchase(true);
+      setPurchaseProgress(0);
+      setPurchaseStep('');
+
       try {
         const priceInWei = ethers.parseEther(selectedDat.price.toString());
+
+        setPurchaseStep('Awaiting wallet confirmation...');
+        setPurchaseProgress(10);
+
         const tx = await selectedDat.contract.purchase(selectedDat.id, { value: priceInWei });
+        
+        setPurchaseStep('Processing transaction...');
+        setPurchaseProgress(50);
+
         await tx.wait();
+
+        setPurchaseStep('Finalizing purchase...');
+        setPurchaseProgress(90);
+
         await fetchDats();
         setPurchaseSuccess(true);
+        setPurchaseProgress(100);
+        
         setTimeout(() => {
             setIsModalOpen(false);
             setSelectedDat(null);
+            setProcessingPurchase(false);
+            setPurchaseProgress(0);
+            setPurchaseStep('');
         }, 2000);
       } catch (err) {
           console.error("Purchase failed:", err);
           alert("Purchase failed! See console for details.");
-      } finally {
-        setProcessingPurchase(false);
+          setIsModalOpen(false); // Close modal on failure
+          setProcessingPurchase(false);
+          setPurchaseProgress(0);
+          setPurchaseStep('');
       }
   };
 
@@ -470,7 +514,8 @@ export default function App() {
           <div className="flex flex-col lg:flex-row gap-6">
             <div className="lg:w-1/3">
                 <DATMintingForm 
-                    onMint={(data) => handleMint(userContract, data)}
+                    mintingContract={userContract}
+                    onMintSuccess={fetchDats}
                     walletConnected={isConnected}
                     title="Mint a Community DAT"
                     icon={<Users className="text-purple-400"/>}
@@ -485,7 +530,8 @@ export default function App() {
           {isOwner && (
               <div className="mt-6">
                   <DATMintingForm 
-                      onMint={(data) => handleMint(contract, data)}
+                      mintingContract={contract}
+                      onMintSuccess={fetchDats}
                       walletConnected={isConnected}
                       title="Mint an Official DAT"
                       icon={<Shield className="text-yellow-400"/>}
@@ -499,16 +545,23 @@ export default function App() {
         </main>
       </div>
 
-      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Confirm Purchase">
+      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Confirm Purchase" disableClose={processingPurchase}>
           {selectedDat && (
               <div>
                   {!purchaseSuccess ? (
                       <>
                           <p className="text-gray-300">You are about to purchase <span className="font-bold text-purple-400">{selectedDat.name}</span> for <span className="font-bold text-white">{selectedDat.price} LAZAI</span>.</p>
                           <p className="text-sm text-gray-500 mt-2">Your current balance is {balance.toFixed(2)} LAZAI.</p>
+                          
+                          {processingPurchase && (
+                              <div className="mt-6">
+                                  <ProgressBar progress={purchaseProgress} text={purchaseStep} />
+                              </div>
+                          )}
+
                           <div className="mt-6 flex justify-end gap-4">
-                              <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 rounded-lg bg-gray-600 hover:bg-gray-700 transition">Cancel</button>
-                              <button onClick={confirmPurchase} disabled={processingPurchase} className="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 transition disabled:bg-gray-500">
+                              <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 rounded-lg bg-gray-600 hover:bg-gray-700 transition" disabled={processingPurchase}>Cancel</button>
+                              <button onClick={confirmPurchase} disabled={processingPurchase} className="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 transition disabled:bg-gray-500 disabled:cursor-not-allowed">
                                   {processingPurchase ? 'Processing...' : 'Confirm'}
                               </button>
                           </div>

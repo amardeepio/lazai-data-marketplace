@@ -23,6 +23,7 @@ const userContract = new ethers.Contract(userContractAddress, UserDATArtifact.ab
 const alithAgent = new Agent({
     // FIX: Changed 'llm' to 'model'
     model: 'gemini-2.5-flash',
+    agent_logs: false,
     apiKey: process.env.GEMINI_API_KEY,
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
     memory: new WindowBufferMemory({ window_size: 10}),
@@ -32,7 +33,7 @@ const alithAgent = new Agent({
     Be friendly, concise, and helpful.
     The marketplace has two types of DATs: "Official DATs" minted by the platform owner, and "Community DATs" minted by any user.
     The native token is LAZAI.`,
-    agent_logs: false
+   
 });
 
 // Middleware

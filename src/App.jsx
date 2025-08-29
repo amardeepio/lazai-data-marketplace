@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ethers } from 'ethers';
 import axios from 'axios';
-import { UploadCloud, DollarSign, BarChart2, Share2, Wallet, CheckCircle, X, Shield, RefreshCw, Users, Crown, Download, Bot } from 'lucide-react';
+import { UploadCloud, DollarSign, BarChart2, Share2, Wallet, CheckCircle, X, Shield, RefreshCw, Users, Crown, Download, Bot, Info, Clock, Hash, FileText } from 'lucide-react';
 import { useWallet } from './components/WalletContext';
 import toast, { Toaster } from 'react-hot-toast';
 import ChatWidget, { FloatingChatButton } from './components/ChatWidget';
@@ -56,14 +56,14 @@ const Modal = ({ isOpen, onClose, title, children, disableClose = false }) => {
     if (!isOpen) return null;
     return (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex justify-center items-center z-50 p-4">
-            <div className="bg-gray-800 rounded-xl border border-gray-700 shadow-2xl w-full max-w-md">
+            <div className="bg-gray-800 rounded-xl border border-gray-700 shadow-2xl w-full max-w-2xl">
                 <div className="flex justify-between items-center p-4 border-b border-gray-700">
                     <h3 className="text-lg font-semibold text-white">{title}</h3>
                     <button onClick={onClose} className="text-gray-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed" disabled={disableClose}>
                         <X size={24} />
                     </button>
                 </div>
-                <div className="p-6">
+                <div className="p-6 max-h-[80vh] overflow-y-auto">
                     {children}
                 </div>
             </div>
@@ -282,12 +282,12 @@ const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title
   );
 };
 
-const DATCard = ({ dat, onBuy, currentUserAddress }) => {
+const DATCard = ({ dat, onViewDetails, currentUserAddress }) => {
     const isOwner = currentUserAddress && dat.owner.toLowerCase() === currentUserAddress.toLowerCase();
     const isOfficial = dat.type === 'official';
 
     return (
-        <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700 flex flex-col justify-between h-full hover:border-purple-500 transition-colors duration-300 relative">
+        <div onClick={() => onViewDetails(dat)} className="bg-gray-900/50 p-4 rounded-lg border border-gray-700 flex flex-col justify-between h-full hover:border-purple-500 transition-all duration-300 relative cursor-pointer group">
             {isOfficial && (
                 <div className="absolute top-2 right-2 bg-purple-600 text-white text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1">
                     <Crown size={12} />
@@ -295,16 +295,19 @@ const DATCard = ({ dat, onBuy, currentUserAddress }) => {
                 </div>
             )}
             <div>
-                <h3 className="font-bold text-lg text-purple-300 pr-16">{dat.name}</h3>
+                <h3 className="font-bold text-lg text-purple-300 pr-16 group-hover:text-purple-200">{dat.name}</h3>
                 <p className="text-gray-400 text-sm my-2 h-16 overflow-hidden">{dat.description}</p>
                 <p className="text-xs text-gray-500">Owner: {formatAddress(dat.owner)}</p>
             </div>
             <div className="mt-4 flex justify-between items-center">
                 <span className="text-xl font-semibold text-white">{dat.price} LAZAI</span>
                 <button
-                    onClick={() => onBuy(dat)}
                     disabled={isOwner}
-                    className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-green-700 transition disabled:bg-gray-600 disabled:cursor-not-allowed"
+                    className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
+                        isOwner
+                        ? 'bg-gray-600 cursor-not-allowed'
+                        : 'bg-green-600 group-hover:bg-green-700'
+                    }`}
                 >
                     {isOwner ? 'Owned' : 'Buy DAT'}
                 </button>
@@ -328,7 +331,7 @@ const SkeletonCard = () => (
     </div>
 );
 
-const Marketplace = ({ dats, onBuy, currentUserAddress, onRefresh, loading }) => {
+const Marketplace = ({ dats, onViewDetails, onRefresh, loading, currentUserAddress }) => {
     const officialDats = dats.filter(d => d.type === 'official');
     const communityDats = dats.filter(d => d.type === 'user');
 
@@ -349,7 +352,7 @@ const Marketplace = ({ dats, onBuy, currentUserAddress, onRefresh, loading }) =>
             <h3 className="text-2xl font-semibold text-purple-400 mb-4 flex items-center gap-2"><Crown size={20}/> Official DATs</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {loading ? renderSkeletons(4) : officialDats.map(dat => (
-                    <DATCard key={`${dat.type}-${dat.id}`} dat={dat} onBuy={onBuy} currentUserAddress={currentUserAddress} />
+                    <DATCard key={`${dat.type}-${dat.id}`} dat={dat} onViewDetails={onViewDetails} currentUserAddress={currentUserAddress} />
                 ))}
             </div>
             {!loading && officialDats.length === 0 && <p className="text-gray-500 mt-4">No official DATs available at the moment.</p>}
@@ -359,7 +362,7 @@ const Marketplace = ({ dats, onBuy, currentUserAddress, onRefresh, loading }) =>
             <h3 className="text-2xl font-semibold text-purple-400 mb-4 flex items-center gap-2"><Users size={20}/> Community DATs</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {loading ? renderSkeletons(8) : communityDats.map(dat => (
-                    <DATCard key={`${dat.type}-${dat.id}`} dat={dat} onBuy={onBuy} currentUserAddress={currentUserAddress} />
+                    <DATCard key={`${dat.type}-${dat.id}`} dat={dat} onViewDetails={onViewDetails} currentUserAddress={currentUserAddress} />
                 ))}
             </div>
             {!loading && communityDats.length === 0 && <p className="text-gray-500 mt-4">No community-minted DATs available yet.</p>}
@@ -429,6 +432,8 @@ export default function App() {
   const [balance, setBalance] = useState(0);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedDat, setSelectedDat] = useState(null);
+  const [datDetails, setDatDetails] = useState(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
   const [processingPurchase, setProcessingPurchase] = useState(false);
   const [purchaseSuccess, setPurchaseSuccess] = useState(false);
   const [loadingDats, setLoadingDats] = useState(false);
@@ -501,7 +506,6 @@ export default function App() {
       // Event listener for real-time updates
       const handleTransfer = (from, to, tokenId) => {
         console.log('Transfer event received:', { from, to, tokenId });
-        // Ignore the initial load of events
         if (from === ethers.ZeroAddress) {
             toast.success('New DAT minted! Marketplace updated.');
         } else {
@@ -511,9 +515,9 @@ export default function App() {
       };
 
       const officialFilter = contract.filters.Transfer();
-      const userFilter = userContract.filters.Transfer();
-
       contract.on(officialFilter, handleTransfer);
+
+      const userFilter = userContract.filters.Transfer();
       userContract.on(userFilter, handleTransfer);
 
       // Cleanup listeners on component unmount
@@ -524,12 +528,51 @@ export default function App() {
     }
   }, [account, contract, userContract, provider, fetchDats]);
 
-  const handleBuyClick = (dat) => {
-      if (!isConnected) { toast.error("Please connect your wallet to purchase a DAT."); return; }
-      if (balance < dat.price) { toast.error("Insufficient funds to purchase this DAT."); return; }
-      setSelectedDat(dat);
-      setIsModalOpen(true);
-      setPurchaseSuccess(false);
+  const fetchDatDetails = async (dat) => {
+    if (!dat || !provider) return;
+    setLoadingDetails(true);
+    try {
+      // Get the latest block number to constrain the query range
+      const latestBlock = await provider.getBlockNumber();
+      const fromBlock = Math.max(0, latestBlock - 99999); // Adhere to node's 100k block range limit
+
+      const transferFilter = dat.contract.filters.Transfer(null, null, dat.id);
+      const transferEvents = await dat.contract.queryFilter(transferFilter, fromBlock, latestBlock);
+
+      const history = await Promise.all(transferEvents.map(async (event) => {
+        const block = await provider.getBlock(event.blockNumber);
+        return {
+          from: event.args.from,
+          to: event.args.to,
+          timestamp: block.timestamp * 1000, // convert to JS timestamp
+          txHash: event.transactionHash,
+        };
+      }));
+
+      // Sort ascending to find the mint event, then reverse for display
+      history.sort((a, b) => a.timestamp - b.timestamp);
+      const mintDate = history.length > 0 ? history[0].timestamp : null;
+      history.reverse(); // Most recent first
+
+      setDatDetails({
+        history: history,
+        mintDate: mintDate,
+      });
+
+    } catch (err) {
+      console.error("Failed to fetch DAT details:", err);
+      toast.error("Could not load DAT details.");
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  const handleViewDetails = (dat) => {
+    setSelectedDat(dat);
+    setDatDetails(null);
+    fetchDatDetails(dat);
+    setIsModalOpen(true);
+    setPurchaseSuccess(false);
   };
 
   const confirmPurchase = async () => {
@@ -652,36 +695,63 @@ export default function App() {
               </div>
           )}
 
-          <Marketplace dats={dats} onBuy={handleBuyClick} currentUserAddress={account} onRefresh={fetchDats} loading={loadingDats} />
+          <Marketplace dats={dats} onViewDetails={handleViewDetails} onRefresh={fetchDats} loading={loadingDats} currentUserAddress={account} />
         </main>
       </div>
 
-      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Confirm Purchase" disableClose={processingPurchase}>
-          {selectedDat && (
+      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={selectedDat ? selectedDat.name : 'DAT Details'} disableClose={processingPurchase}>
+          {loadingDetails && <div className="flex justify-center items-center p-8"><RefreshCw className="animate-spin text-purple-400" size={48} /></div>}
+          {!loadingDetails && selectedDat && datDetails && (
               <div>
-                  {!purchaseSuccess ? (
-                      <>
-                          <p className="text-gray-300">You are about to purchase <span className="font-bold text-purple-400">{selectedDat.name}</span> for <span className="font-bold text-white">{selectedDat.price} LAZAI</span>.</p>
-                          <p className="text-sm text-gray-500 mt-2">Your current balance is {balance.toFixed(2)} LAZAI.</p>
-                          
-                          {processingPurchase && (
-                              <div className="mt-6">
-                                  <ProgressBar progress={purchaseProgress} text={purchaseStep} />
-                              </div>
-                          )}
+                  <p className="text-gray-300 mb-4">{selectedDat.description}</p>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mb-6">
+                      <div className="bg-gray-900/50 p-3 rounded-lg">
+                          <p className="text-gray-400 font-semibold">Price</p>
+                          <p className="text-white text-lg">{selectedDat.price} LAZAI</p>
+                      </div>
+                      <div className="bg-gray-900/50 p-3 rounded-lg">
+                          <p className="text-gray-400 font-semibold">Owner</p>
+                          <p className="text-white text-lg truncate" title={selectedDat.owner}>{formatAddress(selectedDat.owner)}</p>
+                      </div>
+                      <div className="bg-gray-900/50 p-3 rounded-lg">
+                          <p className="text-gray-400 font-semibold">Token ID</p>
+                          <p className="text-white text-lg">{selectedDat.id}</p>
+                      </div>
+                      <div className="bg-gray-900/50 p-3 rounded-lg">
+                          <p className="text-gray-400 font-semibold">Minted On</p>
+                          <p className="text-white text-lg">{new Date(datDetails.mintDate).toLocaleDateString()}</p>
+                      </div>
+                      <div className="bg-gray-900/50 p-3 rounded-lg col-span-1 md:col-span-2">
+                          <p className="text-gray-400 font-semibold">Contract Address</p>
+                          <a href={`https://testnet-explorer.lazai.network/token/${selectedDat.contract.target}`} target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:underline truncate block">{selectedDat.contract.target}</a>
+                      </div>
+                  </div>
 
-                          <div className="mt-6 flex justify-end gap-4">
-                              <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 rounded-lg bg-gray-600 hover:bg-gray-700 transition" disabled={processingPurchase}>Cancel</button>
-                              <button onClick={confirmPurchase} disabled={processingPurchase} className="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 transition disabled:bg-gray-500 disabled:cursor-not-allowed">
-                                  {processingPurchase ? 'Processing...' : 'Confirm'}
-                              </button>
-                          </div>
-                      </>
+                  <h4 className="text-lg font-semibold text-white mb-3">Provenance</h4>
+                  <ul className="space-y-2 text-xs">
+                      {datDetails.history.map((item, index) => (
+                          <li key={index} className="bg-gray-900/50 p-2 rounded-md">
+                              <p><span className="font-semibold">From:</span> {formatAddress(item.from)}</p>
+                              <p><span className="font-semibold">To:</span> {formatAddress(item.to)}</p>
+                              <p><span className="font-semibold">Date:</span> {new Date(item.timestamp).toLocaleString()}</p>
+                              <a href={`https://testnet-explorer.lazai.network/tx/${item.txHash}`} target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:underline">View Transaction</a>
+                          </li>
+                      ))}
+                  </ul>
+
+                  {!purchaseSuccess ? (
+                      <div className="mt-6 flex justify-end gap-4">
+                          {account && selectedDat.owner.toLowerCase() !== account.toLowerCase() && (
+                            <button onClick={confirmPurchase} disabled={processingPurchase} className="px-6 py-2 rounded-lg bg-green-600 hover:bg-green-700 transition disabled:bg-gray-500 disabled:cursor-not-allowed font-semibold">
+                                {processingPurchase ? 'Processing...' : 'Buy DAT'}
+                            </button>
+                          )}
+                      </div>
                   ) : (
-                      <div className="text-center">
+                      <div className="text-center mt-6">
                           <CheckCircle className="text-green-500 w-16 h-16 mx-auto mb-4" />
                           <h4 className="text-xl font-bold text-white">Purchase Successful!</h4>
-                          <p className="text-gray-300 mt-2">You are now the owner of <span className="font-bold text-purple-400">{selectedDat.name}</span>.</p>
                       </div>
                   )}
               </div>

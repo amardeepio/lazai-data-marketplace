@@ -63,6 +63,41 @@ app.post('/api/chat', async (req, res) => {
     }
 });
 
+// New route for DAT analysis
+app.post('/api/analyze-dat', async (req, res) => {
+    const { textSample } = req.body;
+
+    if (!textSample) {
+        return res.status(400).json({ success: false, message: 'textSample is required.' });
+    }
+
+    try {
+        const analysisPrompt = `
+            Based on the following sample from a dataset, please suggest a concise and descriptive name, a short description (max 50 words), and a fair market price in LAZAI tokens (as a number).
+            The dataset sample is:
+            --- SAMPLE ---
+            ${textSample}
+            --- END SAMPLE ---
+            Return the result as a single, minified JSON object with three keys: "name", "description", and "price". Do not include any other text or explanation in your response.
+        `;
+
+        const response = await alithAgent.prompt(analysisPrompt);
+        
+        // The model might wrap the JSON in a markdown block, so we extract it.
+        const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/);
+        const jsonString = jsonMatch ? jsonMatch[1].trim() : response.trim();
+        
+        // Attempt to parse the cleaned JSON response
+        const jsonResponse = JSON.parse(jsonString);
+
+        res.json({ success: true, analysis: jsonResponse });
+
+    } catch (error) {
+        console.error('Alith analysis error:', error);
+        res.status(500).json({ success: false, message: 'Error analyzing data with the AI agent.' });
+    }
+});
+
 // Secure data access route
 app.get('/api/data/:contractType/:tokenId', async (req, res) => {
   const { contractType, tokenId } = req.params;

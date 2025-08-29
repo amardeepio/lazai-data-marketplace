@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ethers } from 'ethers';
 import axios from 'axios';
-import { UploadCloud, DollarSign, BarChart2, Share2, Wallet, CheckCircle, X, Shield, RefreshCw, Users, Crown, Download } from 'lucide-react';
+import { UploadCloud, DollarSign, BarChart2, Share2, Wallet, CheckCircle, X, Shield, RefreshCw, Users, Crown, Download, Bot } from 'lucide-react';
 import { useWallet } from './components/WalletContext';
 import toast, { Toaster } from 'react-hot-toast';
 import ChatWidget, { FloatingChatButton } from './components/ChatWidget';
@@ -17,7 +17,7 @@ const Header = ({ isConnected, account, onConnect }) => (
     </h1>
     <button
       onClick={onConnect}
-      className={`px-3 py-2 md:px-4 rounded-lg font-semibold text-white transition-all duration-300 flex items-center gap-2 text-sm md:text-base ${
+      className={`px-3 py-2 md:px-4 rounded-lg font-semibold text-white transition-all duration-300 flex items-center gap-2 text-sm md:text-base ${ 
         isConnected
           ? 'bg-green-600 hover:bg-green-700'
           : 'bg-purple-600 hover:bg-purple-700'
@@ -93,10 +93,12 @@ const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title
   const [price, setPrice] = useState('');
   const [file, setFile] = useState(null);
   const [minting, setMinting] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [mintingStep, setMintingStep] = useState('');
   const [error, setError] = useState('');
 
   const allowedFileTypes = ['.txt', '.pdf', '.csv', '.json', '.xml'];
+  const isPdf = file?.name.toLowerCase().endsWith('.pdf');
 
   const handleFileChange = (e) => {
       const selectedFile = e.target.files[0];
@@ -107,10 +109,50 @@ const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title
               setError('');
           } else {
               setFile(null);
-              setError(`Invalid file type. Please upload one of: ${allowedFileTypes.join(', ')}`)
+              setError(`Invalid file type. Please upload one of: ${allowedFileTypes.join(', ')}`);
           }
       }
-  }
+  };
+
+  const handleAnalyze = async () => {
+    if (!file) {
+        toast.error('Please select a file first.');
+        return;
+    }
+    setIsAnalyzing(true);
+    const toastId = toast.loading('Analyzing data with Alith...');
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        try {
+            const text = e.target.result;
+            const lines = text.split('\n').slice(0, 21); // Header + 20 rows
+            const textSample = lines.join('\n');
+
+            const response = await axios.post('/api/analyze-dat', { textSample });
+
+            if (response.data.success) {
+                const { name, description, price } = response.data.analysis;
+                setName(name);
+                setDescription(description);
+                setPrice(price.toString());
+                toast.success('Analysis complete!', { id: toastId });
+            } else {
+                throw new Error(response.data.message || 'Analysis failed.');
+            }
+        } catch (err) {
+            console.error("Analysis failed:", err);
+            toast.error(err.message || 'An error occurred during analysis.', { id: toastId });
+        } finally {
+            setIsAnalyzing(false);
+        }
+    };
+    reader.onerror = () => {
+        toast.error('Failed to read file.', { id: toastId });
+        setIsAnalyzing(false);
+    };
+    reader.readAsText(file);
+  };
 
   const uploadFileToPinata = async (file) => {
       const url = `https://api.pinata.cloud/pinning/pinFileToIPFS`;
@@ -134,9 +176,9 @@ const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title
           return res.data.IpfsHash;
       } catch (error) {
           console.error("Error uploading file to Pinata: ", error);
-          throw new Error("Failed to upload file to IPFS.")
+          throw new Error("Failed to upload file to IPFS.");
       }
-  }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -199,11 +241,24 @@ const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title
             <DollarSign size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input type="number" placeholder="Price in LAZAI" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full bg-gray-700 text-white p-2 pl-10 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500" required min="0" step="any" />
         </div>
-        <label className="w-full flex items-center justify-center px-4 py-3 bg-gray-700 text-gray-400 rounded-lg border border-dashed border-gray-600 cursor-pointer hover:bg-gray-600 hover:text-white transition">
-          <UploadCloud size={20} className="mr-2"/>
-          <span>{file ? file.name : 'Upload Dataset File'}</span>
-          <input type="file" className="hidden" onChange={handleFileChange} accept={allowedFileTypes.join(',')} required />
-        </label>
+        
+        <div className="flex items-center gap-2">
+            <label className="flex-grow flex items-center justify-center px-4 py-3 bg-gray-700 text-gray-400 rounded-lg border border-dashed border-gray-600 cursor-pointer hover:bg-gray-600 hover:text-white transition">
+              <UploadCloud size={20} className="mr-2"/>
+              <span className="truncate">{file ? file.name : 'Upload Dataset File'}</span>
+              <input type="file" className="hidden" onChange={handleFileChange} accept={allowedFileTypes.join(',')} required />
+            </label>
+            <button 
+                type="button"
+                onClick={handleAnalyze}
+                disabled={!file || isPdf || isAnalyzing}
+                className="flex-shrink-0 px-4 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center"
+                title={isPdf ? "Analysis is not available for PDF files." : "Analyze with Alith"}
+            >
+                <Bot size={20} className={`mr-2 ${isAnalyzing ? 'animate-spin' : ''}`} />
+                <span>{isAnalyzing ? 'Analyzing...' : 'Analyze'}</span>
+            </button>
+        </div>
         
         {minting && mintingStep ? (
           <div className="flex items-center justify-center gap-2 text-yellow-400 p-3 bg-gray-700 rounded-lg">
@@ -313,7 +368,7 @@ const Marketplace = ({ dats, onBuy, currentUserAddress, onRefresh, loading }) =>
     );
 };
 
-const Dashboard = ({ dats, currentUserAddress, onAccessData }) => {
+const Dashboard = ({ dats, currentUserAddress, onAccessData, onRefresh, loading }) => {
     const userDats = dats.filter(dat => currentUserAddress && dat.owner.toLowerCase() === currentUserAddress.toLowerCase());
     const totalRevenue = userDats.reduce((acc, dat) => acc + (dat.revenue || 0), 0);
     const totalConsumption = userDats.reduce((acc, dat) => acc + (dat.consumption || 0), 0);
@@ -321,7 +376,12 @@ const Dashboard = ({ dats, currentUserAddress, onAccessData }) => {
     return (
         <div className="flex flex-col md:flex-row gap-6">
             <Card className="flex-1">
-                <SectionTitle icon={<BarChart2 className="text-purple-400" />} title="My DATs" />
+                <div className="flex justify-between items-center">
+                    <SectionTitle icon={<BarChart2 className="text-purple-400" />} title="My DATs" />
+                    <button onClick={onRefresh} disabled={loading} className="text-purple-400 hover:text-purple-300 disabled:text-gray-500 disabled:cursor-wait -mt-4">
+                        <RefreshCw className={`transition-transform duration-500 ${loading ? 'animate-spin' : ''}`} />
+                    </button>
+                </div>
                 {userDats.length > 0 ? (
                     <ul className="space-y-3">
                         {userDats.map(dat => (
@@ -453,13 +513,13 @@ export default function App() {
       const officialFilter = contract.filters.Transfer();
       const userFilter = userContract.filters.Transfer();
 
-      provider.on(officialFilter, handleTransfer);
-      provider.on(userFilter, handleTransfer);
+      contract.on(officialFilter, handleTransfer);
+      userContract.on(userFilter, handleTransfer);
 
       // Cleanup listeners on component unmount
       return () => {
-        provider.off(officialFilter, handleTransfer);
-        provider.off(userFilter, handleTransfer);
+        contract.off(officialFilter, handleTransfer);
+        userContract.off(userFilter, handleTransfer);
       };
     }
   }, [account, contract, userContract, provider, fetchDats]);
@@ -574,7 +634,7 @@ export default function App() {
                 />
             </div>
             <div className="lg:w-2/3">
-              <Dashboard dats={dats} currentUserAddress={account} onAccessData={handleAccessData} />
+              <Dashboard dats={dats} currentUserAddress={account} onAccessData={handleAccessData} onRefresh={fetchDats} loading={loadingDats} />
             </div>
           </div>
 

@@ -488,7 +488,7 @@ export default function App() {
       return;
     }
     try {
-      const url = `http://localhost:3001/api/data/${dat.type}/${dat.id}?userAddress=${account}`;
+      const url = `/api/data/${dat.type}/${dat.id}?userAddress=${account}`;
       const response = await axios.get(url);
 
       if (response.data.success) {

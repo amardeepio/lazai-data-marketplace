@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ethers } from 'ethers';
 import axios from 'axios';
 import { UploadCloud, DollarSign, BarChart2, Share2, Wallet, CheckCircle, X, Shield, RefreshCw, Users, Crown, Download, Bot, Info, Clock, Hash, FileText } from 'lucide-react';
 import { useWallet } from './components/WalletContext';
 import toast, { Toaster } from 'react-hot-toast';
 import ChatWidget, { FloatingChatButton } from './components/ChatWidget';
+import MarketplaceControls from './components/MarketplaceControls'; // Import the new component
 
 const formatAddress = (address) => (typeof address === 'string' && address.length > 10) ? `${address.slice(0, 6)}...${address.slice(-4)}` : '';
 
@@ -331,7 +332,7 @@ const SkeletonCard = () => (
     </div>
 );
 
-const Marketplace = ({ dats, onViewDetails, onRefresh, loading, currentUserAddress }) => {
+const Marketplace = ({ dats, onViewDetails, loading, currentUserAddress }) => {
     const officialDats = dats.filter(d => d.type === 'official');
     const communityDats = dats.filter(d => d.type === 'user');
 
@@ -340,14 +341,7 @@ const Marketplace = ({ dats, onViewDetails, onRefresh, loading, currentUserAddre
     );
 
     return (
-      <section className="mt-8">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-3xl font-bold text-white">Marketplace</h2>
-          <button onClick={onRefresh} disabled={loading} className="text-purple-400 hover:text-purple-300 disabled:text-gray-500 disabled:cursor-wait">
-              <RefreshCw className={`transition-transform duration-500 ${loading ? 'animate-spin' : ''}`} />
-          </button>
-        </div>
-        
+      <>
         <div>
             <h3 className="text-2xl font-semibold text-purple-400 mb-4 flex items-center gap-2"><Crown size={20}/> Official DATs</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -355,7 +349,7 @@ const Marketplace = ({ dats, onViewDetails, onRefresh, loading, currentUserAddre
                     <DATCard key={`${dat.type}-${dat.id}`} dat={dat} onViewDetails={onViewDetails} currentUserAddress={currentUserAddress} />
                 ))}
             </div>
-            {!loading && officialDats.length === 0 && <p className="text-gray-500 mt-4">No official DATs available at the moment.</p>}
+            {!loading && officialDats.length === 0 && <p className="text-gray-500 mt-4">No official DATs match your criteria.</p>}
         </div>
 
         <div className="mt-12">
@@ -365,9 +359,9 @@ const Marketplace = ({ dats, onViewDetails, onRefresh, loading, currentUserAddre
                     <DATCard key={`${dat.type}-${dat.id}`} dat={dat} onViewDetails={onViewDetails} currentUserAddress={currentUserAddress} />
                 ))}
             </div>
-            {!loading && communityDats.length === 0 && <p className="text-gray-500 mt-4">No community-minted DATs available yet.</p>}
+            {!loading && communityDats.length === 0 && <p className="text-gray-500 mt-4">No community DATs match your criteria.</p>}
         </div>
-      </section>
+      </>
     );
 };
 
@@ -445,6 +439,47 @@ export default function App() {
   const [purchaseProgress, setPurchaseProgress] = useState(0);
   const [purchaseStep, setPurchaseStep] = useState('');
   const [isChatVisible, setIsChatVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortOption, setSortOption] = useState('date-desc');
+  const [filterType, setFilterType] = useState('all');
+  const [priceRange, setPriceRange] = useState([0, 1000000]); // Default wide range
+
+  const filteredAndSortedDats = useMemo(() => {
+    return dats
+      .filter(dat => {
+        // Filter by Type
+        if (filterType !== 'all' && dat.type !== filterType) {
+          return false;
+        }
+        // Filter by Search Query
+        const query = searchQuery.toLowerCase();
+        if (query && !dat.name.toLowerCase().includes(query) && !dat.description.toLowerCase().includes(query)) {
+          return false;
+        }
+        // Filter by Price Range (currently no UI for this)
+        // if (dat.price < priceRange[0] || dat.price > priceRange[1]) {
+        //   return false;
+        // }
+        return true;
+      })
+      .sort((a, b) => {
+        switch (sortOption) {
+          case 'price-asc':
+            return a.price - b.price;
+          case 'price-desc':
+            return b.price - a.price;
+          case 'name-asc':
+            return a.name.localeCompare(b.name);
+          case 'name-desc':
+            return b.name.localeCompare(a.name);
+          case 'date-asc':
+            return a.id - b.id;
+          case 'date-desc':
+          default:
+            return b.id - a.id;
+        }
+      });
+  }, [dats, searchQuery, sortOption, filterType, priceRange]);
 
   const fetchDats = useCallback(async () => {
       if (!contract || !userContract) return;
@@ -768,7 +803,25 @@ export default function App() {
               </div>
           )}
 
-          <Marketplace dats={dats} onViewDetails={handleViewDetails} onRefresh={fetchDats} loading={loadingDats} currentUserAddress={account} />
+          <section className="mt-8">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-3xl font-bold text-white">Marketplace</h2>
+              <button onClick={fetchDats} disabled={loadingDats} className="text-purple-400 hover:text-purple-300 disabled:text-gray-500 disabled:cursor-wait">
+                  <RefreshCw className={`transition-transform duration-500 ${loadingDats ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+            <MarketplaceControls 
+              searchQuery={searchQuery} 
+              setSearchQuery={setSearchQuery} 
+              sortOption={sortOption} 
+              setSortOption={setSortOption}
+              filterType={filterType}
+              setFilterType={setFilterType}
+              priceRange={priceRange}
+              setPriceRange={setPriceRange}
+            />
+            <Marketplace dats={filteredAndSortedDats} onViewDetails={handleViewDetails} loading={loadingDats} currentUserAddress={account} />
+          </section>
         </main>
       </div>
 

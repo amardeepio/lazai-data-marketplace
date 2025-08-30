@@ -303,7 +303,7 @@ const DATCard = ({ dat, onViewDetails, currentUserAddress }) => {
                 <span className="text-xl font-semibold text-white">{dat.price} LAZAI</span>
                 <button
                     disabled={isOwner}
-                    className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${
+                    className={`px-4 py-2 rounded-lg text-sm font-semibold transition ${ 
                         isOwner
                         ? 'bg-gray-600 cursor-not-allowed'
                         : 'bg-green-600 group-hover:bg-green-700'
@@ -371,10 +371,8 @@ const Marketplace = ({ dats, onViewDetails, onRefresh, loading, currentUserAddre
     );
 };
 
-const Dashboard = ({ dats, currentUserAddress, onAccessData, onRefresh, loading }) => {
+const Dashboard = ({ dats, currentUserAddress, onAccessData, onRefresh, loading, totalRevenue, loadingRevenue }) => {
     const userDats = dats.filter(dat => currentUserAddress && dat.owner.toLowerCase() === currentUserAddress.toLowerCase());
-    const totalRevenue = userDats.reduce((acc, dat) => acc + (dat.revenue || 0), 0);
-    const totalConsumption = userDats.reduce((acc, dat) => acc + (dat.consumption || 0), 0);
 
     return (
         <div className="flex flex-col md:flex-row gap-6">
@@ -403,20 +401,25 @@ const Dashboard = ({ dats, currentUserAddress, onAccessData, onRefresh, loading 
                         ))}
                     </ul>
                 ) : (
-                    <p className="text-gray-500">You don't own any DATs to track.</p>
+                    <p className="text-gray-500">You don't own any DATs yet.</p>
                 )}
             </Card>
             <Card className="flex-1">
                 <SectionTitle icon={<Share2 className="text-purple-400" />} title="My Revenue" />
-                {userDats.length > 0 ? (
-                    <div className="text-center">
-                        <p className="text-gray-400">Total Estimated Earnings</p>
-                        <p className="text-3xl font-bold text-green-400 mt-2">{totalRevenue.toFixed(2)} LAZAI</p>
-                        <p className="text-xs text-gray-500 mt-2">Based on {totalConsumption} total calls across your DATs.</p>
-                    </div>
-                ) : (
-                    <p className="text-gray-500">You don't own any DATs generating revenue.</p>
-                )}
+                <div className="text-center">
+                    {loadingRevenue ? (
+                        <div className="flex flex-col items-center justify-center h-full py-4">
+                            <RefreshCw className="animate-spin text-purple-400" size={32} />
+                            <p className="mt-2 text-gray-400">Updating revenue...</p>
+                        </div>
+                    ) : (
+                        <>
+                            <p className="text-gray-400">Total Earnings From Sales</p>
+                            <p className="text-3xl font-bold text-green-400 mt-2">{totalRevenue.toFixed(4)} LAZAI</p>
+                            <p className="text-xs text-gray-500 mt-2">This is the total revenue from DATs you have sold.</p>
+                        </>
+                    )}
+                </div>
             </Card>
         </div>
     );
@@ -430,6 +433,8 @@ export default function App() {
   const [dats, setDats] = useState([]);
   const [isOwner, setIsOwner] = useState(false);
   const [balance, setBalance] = useState(0);
+  const [totalRevenue, setTotalRevenue] = useState(0);
+  const [loadingRevenue, setLoadingRevenue] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedDat, setSelectedDat] = useState(null);
   const [datDetails, setDatDetails] = useState(null);
@@ -456,7 +461,6 @@ export default function App() {
                       id: i, type: 'official', contract: contract,
                       name: metadata.name, description: metadata.description,
                       price: parseFloat(ethers.formatEther(metadata.price)), owner: owner,
-                      consumption: Math.floor(Math.random() * 1000), revenue: Math.random() * 100,
                   });
               } catch (e) { console.warn(`Could not fetch official DAT ${i}:`, e); }
           }
@@ -471,7 +475,6 @@ export default function App() {
                       id: i, type: 'user', contract: userContract,
                       name: metadata.name, description: metadata.description,
                       price: parseFloat(ethers.formatEther(metadata.price)), owner: owner,
-                      consumption: Math.floor(Math.random() * 500), revenue: Math.random() * 50,
                   });
               } catch (e) { console.warn(`Could not fetch user DAT ${i}:`, e); }
           }
@@ -485,10 +488,75 @@ export default function App() {
       }
   }, [contract, userContract]);
 
+  const fetchRevenue = useCallback(async () => {
+    if (!account || !provider || !contract || !userContract) return;
+    setLoadingRevenue(true);
+    try {
+        const fromWei = (num) => parseFloat(ethers.formatEther(num));
+
+        const processEvents = async (c) => {
+            const filter = c.filters.Transfer(account, null);
+            const latestBlock = await provider.getBlockNumber();
+            let allEvents = [];
+            const blockRange = 99999; // Max range allowed by the node
+
+            for (let fromBlock = 0; fromBlock <= latestBlock; fromBlock += blockRange) {
+                const toBlock = Math.min(fromBlock + blockRange - 1, latestBlock);
+                try {
+                    const events = await c.queryFilter(filter, fromBlock, toBlock);
+                    allEvents = allEvents.concat(events);
+                } catch (e) {
+                    console.warn(`Could not fetch events for block range ${fromBlock}-${toBlock}:`, e);
+                }
+            }
+            
+            const revenues = await Promise.all(allEvents.map(async (event) => {
+                const tx = await provider.getTransaction(event.transactionHash);
+                if (tx && tx.value > 0) {
+                    return fromWei(tx.value);
+                }
+                return 0;
+            }));
+            return revenues.reduce((acc, revenue) => acc + revenue, 0);
+        };
+
+        const officialRevenue = await processEvents(contract);
+        const userRevenue = await processEvents(userContract);
+
+        const newTotalRevenue = officialRevenue + userRevenue;
+        setTotalRevenue(newTotalRevenue);
+        localStorage.setItem(`revenueCache_${account}`, JSON.stringify({ 
+            revenue: newTotalRevenue, 
+            timestamp: Date.now() 
+        }));
+
+    } catch (err) {
+        console.error("Could not fetch revenue:", err);
+    } finally {
+        setLoadingRevenue(false);
+    }
+  }, [account, provider, contract, userContract]);
+
   useEffect(() => {
-    if (contract && userContract && provider) {
+    if (contract && userContract && provider && account) {
+      const FIVE_MINUTES_IN_MS = 5 * 60 * 1000;
+      const cacheKey = `revenueCache_${account}`;
+
+      const checkCacheAndFetchRevenue = () => {
+        const cachedData = localStorage.getItem(cacheKey);
+        if (cachedData) {
+          const { revenue, timestamp } = JSON.parse(cachedData);
+          setTotalRevenue(revenue); // Show cached data immediately
+          // Fetch new data only if cache is older than 5 minutes
+          if (Date.now() - timestamp > FIVE_MINUTES_IN_MS) {
+            fetchRevenue();
+          }
+        } else {
+          fetchRevenue(); // Fetch if no cache exists
+        }
+      };
+
       const checkOwnershipAndBalance = async () => {
-        if (account) {
           try {
             const ownerAddress = await contract.owner();
             setIsOwner(ownerAddress.toLowerCase() === account.toLowerCase());
@@ -497,10 +565,10 @@ export default function App() {
           } catch (err) {
             console.error("Failed to check contract owner or balance:", err);
           }
-        }
       };
 
       fetchDats();
+      checkCacheAndFetchRevenue();
       checkOwnershipAndBalance();
 
       // Event listener for real-time updates
@@ -511,7 +579,11 @@ export default function App() {
         } else {
             toast.success('DAT transferred! Marketplace updated.');
         }
+        // Re-fetch all data on transfer
         fetchDats();
+        if (from.toLowerCase() === account.toLowerCase() || to.toLowerCase() === account.toLowerCase()) {
+            fetchRevenue(); // Always fetch fresh revenue on a relevant transfer
+        }
       };
 
       const officialFilter = contract.filters.Transfer();
@@ -526,7 +598,7 @@ export default function App() {
         userContract.off(userFilter, handleTransfer);
       };
     }
-  }, [account, contract, userContract, provider, fetchDats]);
+  }, [account, contract, userContract, provider, fetchDats, fetchRevenue]);
 
   const fetchDatDetails = async (dat) => {
     if (!dat || !provider) return;
@@ -602,6 +674,7 @@ export default function App() {
         setPurchaseProgress(90);
 
         await fetchDats();
+        await fetchRevenue(); // Re-fetch revenue after a successful purchase
         setPurchaseSuccess(true);
         setPurchaseProgress(100);
         toast.success('Purchase Successful!', { id: toastId });
@@ -677,7 +750,7 @@ export default function App() {
                 />
             </div>
             <div className="lg:w-2/3">
-              <Dashboard dats={dats} currentUserAddress={account} onAccessData={handleAccessData} onRefresh={fetchDats} loading={loadingDats} />
+              <Dashboard dats={dats} currentUserAddress={account} onAccessData={handleAccessData} onRefresh={fetchDats} loading={loadingDats} totalRevenue={totalRevenue} loadingRevenue={loadingRevenue} />
             </div>
           </div>
 

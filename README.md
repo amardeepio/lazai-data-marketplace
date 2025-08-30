@@ -8,12 +8,13 @@ The core feature is **gated data access**, where only the current owner of a DAT
 
 - **Wallet Integration**: Connects to MetaMask to interact with the Lazai network.
 - **DAT Minting**: Users can upload a dataset file and mint a "Community DAT" with a name, description, and price.
+- **AI-Powered Minting**: Utilizes the **Lazai Alith Agentic Framework** to analyze datasets and suggest metadata (name, description, price) to streamline the minting process.
 - **Official DATs**: The contract owner has the ability to mint special "Official DATs".
 - **Decentralized Marketplace**: Browse all Community and Official DATs available for purchase.
 - **On-Chain Purchasing**: Buy DATs from other users. The transaction, including payment and ownership transfer, is handled securely by the smart contract.
-- **Personal Dashboard**: View all DATs you currently own.
+- **Personal Dashboard with Revenue Tracking**: View all DATs you currently own and monitor your total on-chain sales revenue, calculated in real-time.
 - **Secure Data Access**: A backend service verifies token ownership on the blockchain before granting access to the underlying dataset, which is stored on IPFS.
-- **Real-Time Updates**: The UI listens for on-chain events (`DATMinted`, `Transfer`) and updates in real-time for all users.
+- **Real-Time Updates & Caching**: The UI listens for on-chain events to refresh data instantly and uses an intelligent caching mechanism for a highly responsive user experience.
 
 ## Tech Stack
 
@@ -22,6 +23,7 @@ The core feature is **gated data access**, where only the current owner of a DAT
 - **Blockchain**: Solidity, Hardhat, OpenZeppelin Contracts
 - **Storage**: IPFS (via Pinata for pinning)
 - **Network**: Lazai Testnet
+- **Ai Agents**: LazAI Alith agentic Framework
 
 ## Getting Started
 

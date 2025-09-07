@@ -14,4 +14,19 @@ module.exports = {
       accounts: [process.env.PRIVATE_KEY],
     },
   },
+  etherscan: {
+    apiKey: {
+      'lazai': 'empty' // Adjusted for your network name
+    },
+    customChains: [
+      {
+        network: "lazai", // Adjusted for your network name
+        chainId: 133718,
+        urls: {
+          apiURL: "https://testnet-explorer-api.lazai.network/api",
+          browserURL: "https://testnet-explorer.lazai.network"
+        }
+      }
+    ]
+  }
 };

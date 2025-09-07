@@ -19,6 +19,12 @@ const userContractAddress = process.env.VITE_USER_CONTRACT_ADDRESS;
 const officialContract = new ethers.Contract(officialContractAddress, LazaiDATArtifact.abi, provider);
 const userContract = new ethers.Contract(userContractAddress, UserDATArtifact.abi, provider);
 
+let datsCache = {
+  timestamp: 0,
+  data: [],
+};
+const CACHE_DURATION_MS = 60 * 1000; // 60 seconds
+
 // Alith Agent Setup
 const alithAgent = new Agent({
     // FIX: Changed 'llm' to 'model'
@@ -73,21 +79,32 @@ app.post('/api/analyze-dat', async (req, res) => {
 
     try {
         const analysisPrompt = `
-            Based on the following sample from a dataset, please suggest a concise and descriptive name, a short description (max 50 words), and a fair market price in LAZAI tokens (as a number).
+            You are an expert data analyst for a data marketplace. Based on the following sample from a dataset, please provide a detailed analysis.
             The dataset sample is:
             --- SAMPLE ---
             ${textSample}
             --- END SAMPLE ---
-            Return the result as a single, minified JSON object with three keys: "name", "description", and "price". Do not include any other text or explanation in your response.
+            Your task is to return a single, minified JSON object with the following keys:
+            1. "name": A concise and descriptive name for the dataset.
+            2. "description": A short, compelling description (max 50 words).
+            3. "price": A fair market price in LAZAI tokens (as a number).
+            4. "tags": An array of 3-5 relevant keyword tags (as strings) for search and filtering.
+            5. "qualityScore": A numerical score from 1 (poor) to 10 (excellent) representing the data's structure, completeness, and consistency.
+            6. "fraudScore": A numerical score from 1 (unlikely) to 10 (highly likely) indicating the likelihood of this being spam, low-quality, or fraudulent data.
+            Do not include any other text, markdown, or explanation in your response. Just the raw JSON object.
         `;
 
         const response = await alithAgent.prompt(analysisPrompt);
         
-        // The model might wrap the JSON in a markdown block, so we extract it.
-        const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/);
-        const jsonString = jsonMatch ? jsonMatch[1].trim() : response.trim();
-        
-        // Attempt to parse the cleaned JSON response
+        // A more robust method to find and parse the JSON object from the AI's response
+        const startIndex = response.indexOf('{');
+        const endIndex = response.lastIndexOf('}');
+
+        if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
+            throw new Error("No valid JSON object found in the AI's response.");
+        }
+
+        const jsonString = response.substring(startIndex, endIndex + 1);
         const jsonResponse = JSON.parse(jsonString);
 
         res.json({ success: true, analysis: jsonResponse });
@@ -143,6 +160,68 @@ app.get('/api/data/:contractType/:tokenId', async (req, res) => {
         return res.status(404).json({ success: false, message: 'Token does not exist or could not be found.' });
     }
     res.status(500).json({ success: false, message: 'An error occurred on the server.' });
+  }
+});
+
+// New route for fetching all DATs with caching
+app.get('/api/dats', async (req, res) => {
+  const { forceRefresh } = req.query;
+  const now = Date.now();
+
+  // If cache is recent and not a forced refresh, return it
+  if (forceRefresh !== 'true' && now - datsCache.timestamp < CACHE_DURATION_MS && datsCache.data.length > 0) {
+    return res.json({ success: true, dats: datsCache.data, source: 'cache' });
+  }
+
+  try {
+    const fromWei = (num) => ethers.formatEther(num);
+
+    const fetchContractDats = async (contract, type) => {
+      const supply = await contract.totalSupply();
+      const tokenIds = Array.from({ length: Number(supply) }, (_, i) => i + 1);
+
+      const promises = tokenIds.map(async (id) => {
+        try {
+          const owner = await contract.ownerOf(id);
+          const metadata = await contract.datMetadata(id);
+          return {
+            id,
+            type,
+            name: metadata.name,
+            description: metadata.description,
+            price: parseFloat(fromWei(metadata.price)),
+            owner,
+          };
+        } catch (e) {
+          console.warn(`Could not fetch ${type} DAT ${id}:`, e.message);
+          return null; // Return null for failed fetches
+        }
+      });
+
+      const results = await Promise.allSettled(promises);
+      return results
+        .filter(result => result.status === 'fulfilled' && result.value)
+        .map(result => result.value);
+    };
+
+    const [officialDats, userDats] = await Promise.all([
+      fetchContractDats(officialContract, 'official'),
+      fetchContractDats(userContract, 'user'),
+    ]);
+
+    const allDats = [...officialDats, ...userDats];
+
+    // Update cache
+    datsCache = {
+      timestamp: now,
+      data: allDats,
+    };
+
+    res.json({ success: true, dats: allDats, source: 'fresh' });
+
+  } catch (error) {
+    console.error('Error fetching DATs from blockchain:', error);
+    res.status(500).json({ success: false, message: 'Error fetching DATs from the server.' });
   }
 });
 

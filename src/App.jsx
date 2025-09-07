@@ -87,6 +87,42 @@ const ProgressBar = ({ progress, text }) => (
 
 // --- CORE FEATURE COMPONENTS ---
 
+const AnalysisResults = ({ results }) => {
+    if (!results) return null;
+
+    const getScoreColor = (score, reverse = false) => {
+        const effectiveScore = reverse ? 11 - score : score;
+        if (effectiveScore >= 8) return 'text-green-400';
+        if (effectiveScore >= 5) return 'text-yellow-400';
+        return 'text-red-400';
+    };
+
+    return (
+        <div className="mt-4 p-4 bg-gray-900/50 rounded-lg border border-gray-700 space-y-3 animate-fade-in">
+            <h4 className="font-semibold text-white flex items-center gap-2"><Bot size={18} /> AI Analysis Results</h4>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="bg-gray-700 p-2 rounded-md">
+                    <p className="text-gray-400">Quality Score</p>
+                    <p className={`font-bold text-lg ${getScoreColor(results.qualityScore)}`}>{results.qualityScore} / 10</p>
+                </div>
+                <div className="bg-gray-700 p-2 rounded-md">
+                    <p className="text-gray-400">Fraud Risk</p>
+                    <p className={`font-bold text-lg ${getScoreColor(results.fraudScore, true)}`}>{results.fraudScore} / 10</p>
+                </div>
+            </div>
+            <div>
+                <p className="text-gray-400 text-sm mb-1">Suggested Tags</p>
+                <div className="flex flex-wrap gap-2">
+                    {results.tags && results.tags.map(tag => (
+                        <span key={tag} className="bg-purple-600/50 text-purple-300 text-xs font-medium px-2.5 py-1 rounded-full">{tag}</span>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
 const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title, icon, buttonText, disabled: formDisabled }) => {
   const { account } = useWallet();
   const [name, setName] = useState('');
@@ -97,6 +133,7 @@ const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [mintingStep, setMintingStep] = useState('');
   const [error, setError] = useState('');
+  const [analysisResult, setAnalysisResult] = useState(null);
 
   const allowedFileTypes = ['.txt', '.pdf', '.csv', '.json', '.xml'];
   const isPdf = file?.name.toLowerCase().endsWith('.pdf');
@@ -108,6 +145,7 @@ const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title
           if (allowedFileTypes.includes(fileExtension.toLowerCase())) {
               setFile(selectedFile);
               setError('');
+              setAnalysisResult(null); // Reset analysis on new file
           } else {
               setFile(null);
               setError(`Invalid file type. Please upload one of: ${allowedFileTypes.join(', ')}`);
@@ -121,6 +159,7 @@ const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title
         return;
     }
     setIsAnalyzing(true);
+    setAnalysisResult(null);
     const toastId = toast.loading('Analyzing data with Alith...');
 
     const reader = new FileReader();
@@ -133,10 +172,11 @@ const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title
             const response = await axios.post('/api/analyze-dat', { textSample });
 
             if (response.data.success) {
-                const { name, description, price } = response.data.analysis;
-                setName(name);
-                setDescription(description);
-                setPrice(price.toString());
+                const analysis = response.data.analysis;
+                setName(analysis.name);
+                setDescription(analysis.description);
+                setPrice(analysis.price.toString());
+                setAnalysisResult(analysis);
                 toast.success('Analysis complete!', { id: toastId });
             } else {
                 throw new Error(response.data.message || 'Analysis failed.');
@@ -213,13 +253,14 @@ const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title
 
       setMintingStep('Success!');
       toast.success('DAT Minted Successfully!', { id: toastId });
-      await onMintSuccess();
+      await onMintSuccess(true);
       
       // Reset form
       setName('');
       setDescription('');
       setPrice('');
       setFile(null);
+      setAnalysisResult(null);
       setTimeout(() => setMintingStep(''), 3000);
 
     } catch (err) {
@@ -247,7 +288,7 @@ const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title
             <label className="flex-grow flex items-center justify-center px-4 py-3 bg-gray-700 text-gray-400 rounded-lg border border-dashed border-gray-600 cursor-pointer hover:bg-gray-600 hover:text-white transition">
               <UploadCloud size={20} className="mr-2"/>
               <span className="truncate">{file ? file.name : 'Upload Dataset File'}</span>
-              <input type="file" className="hidden" onChange={handleFileChange} accept={allowedFileTypes.join(',')} required />
+              <input type="file" className="hidden" onChange={handleFileChange} accept={allowedFileTypes.join(',')} />
             </label>
             <button 
                 type="button"
@@ -260,6 +301,8 @@ const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title
                 <span>{isAnalyzing ? 'Analyzing...' : 'Analyze'}</span>
             </button>
         </div>
+
+        <AnalysisResults results={analysisResult} />
         
         {minting && mintingStep ? (
           <div className="flex items-center justify-center gap-2 text-yellow-400 p-3 bg-gray-700 rounded-lg">
@@ -282,6 +325,7 @@ const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title
     </Card>
   );
 };
+
 
 const DATCard = ({ dat, onViewDetails, currentUserAddress }) => {
     const isOwner = currentUserAddress && dat.owner.toLowerCase() === currentUserAddress.toLowerCase();
@@ -481,46 +525,28 @@ export default function App() {
       });
   }, [dats, searchQuery, sortOption, filterType, priceRange]);
 
-  const fetchDats = useCallback(async () => {
-      if (!contract || !userContract) return;
-      setLoadingDats(true);
-      try {
-          const allDats = [];
-          // Fetch from official contract
-          const officialSupply = await contract.totalSupply();
-          for (let i = 1; i <= officialSupply; i++) {
-              try {
-                  const owner = await contract.ownerOf(i);
-                  const metadata = await contract.datMetadata(i);
-                  allDats.push({
-                      id: i, type: 'official', contract: contract,
-                      name: metadata.name, description: metadata.description,
-                      price: parseFloat(ethers.formatEther(metadata.price)), owner: owner,
-                  });
-              } catch (e) { console.warn(`Could not fetch official DAT ${i}:`, e); }
-          }
-
-          // Fetch from user contract
-          const userSupply = await userContract.totalSupply();
-          for (let i = 1; i <= userSupply; i++) {
-              try {
-                  const owner = await userContract.ownerOf(i);
-                  const metadata = await userContract.datMetadata(i);
-                  allDats.push({
-                      id: i, type: 'user', contract: userContract,
-                      name: metadata.name, description: metadata.description,
-                      price: parseFloat(ethers.formatEther(metadata.price)), owner: owner,
-                  });
-              } catch (e) { console.warn(`Could not fetch user DAT ${i}:`, e); }
-          }
-
-          setDats(allDats.sort((a, b) => b.id - a.id)); // Sort by ID desc
-      } catch (err) {
-          console.error("Failed to fetch DATs:", err);
-          toast.error("Failed to fetch DATs from the network.");
-      } finally {
-          setLoadingDats(false);
+  const fetchDats = useCallback(async (forceRefresh = false) => {
+    if (!contract || !userContract) return; // Contracts needed for re-association
+    setLoadingDats(true);
+    try {
+      const url = forceRefresh ? '/api/dats?forceRefresh=true' : '/api/dats';
+      const response = await axios.get(url);
+      if (response.data.success) {
+        // Re-associate contract instances on the frontend for purchase functionality
+        const datsWithContracts = response.data.dats.map(dat => ({
+          ...dat,
+          contract: dat.type === 'official' ? contract : userContract,
+        }));
+        setDats(datsWithContracts.sort((a, b) => b.id - a.id));
+      } else {
+        throw new Error(response.data.message || 'Failed to fetch DATs.');
       }
+    } catch (err) {
+      console.error("Failed to fetch DATs:", err);
+      toast.error(err.message || "Failed to fetch DATs from the server.");
+    } finally {
+      setLoadingDats(false);
+    }
   }, [contract, userContract]);
 
   const fetchRevenue = useCallback(async () => {
@@ -609,11 +635,6 @@ export default function App() {
       // Event listener for real-time updates
       const handleTransfer = (from, to, tokenId) => {
         console.log('Transfer event received:', { from, to, tokenId });
-        if (from === ethers.ZeroAddress) {
-            toast.success('New DAT minted! Marketplace updated.');
-        } else {
-            toast.success('DAT transferred! Marketplace updated.');
-        }
         // Re-fetch all data on transfer
         fetchDats();
         if (from.toLowerCase() === account.toLowerCase() || to.toLowerCase() === account.toLowerCase()) {
@@ -682,54 +703,61 @@ export default function App() {
     setPurchaseSuccess(false);
   };
 
-  const confirmPurchase = async () => {
-      if (!selectedDat || !selectedDat.contract) return;
-      setProcessingPurchase(true);
-      setPurchaseProgress(0);
-      setPurchaseStep('');
+  const waitForTransaction = async (tx, toastId) => {
+    try {
+      await tx.wait(); // The long wait happens here, in the background
 
-      const toastId = toast.loading('Processing purchase...');
+      // Success!
+      toast.success('Purchase Successful!', { id: toastId });
+      fetchDats(true); // Refresh data
+      fetchRevenue();
+    } catch (err) {
+      // Handle transaction failure during mining
+      console.error("Transaction failed during mining:", err);
+      const errorMessage = err.reason || "Transaction failed during processing.";
+      toast.error(errorMessage, { id: toastId });
+    }
+  };
 
-      try {
-        const priceInWei = ethers.parseEther(selectedDat.price.toString());
+  const confirmPurchase = () => {
+      if (!selectedDat || !selectedDat.contract || processingPurchase) return;
 
-        setPurchaseStep('Awaiting wallet confirmation...');
-        setPurchaseProgress(10);
-        toast.loading('Awaiting wallet confirmation...', { id: toastId });
+      // Check for sufficient funds before doing anything else
+      if (balance < selectedDat.price) {
+          toast.error(`Insufficient funds. You need ${selectedDat.price} LAZAI to purchase this DAT.`);
+          return;
+      }
+      
+      setProcessingPurchase(true); // Disable button immediately
+      const priceInWei = ethers.parseEther(selectedDat.price.toString());
+      const toastId = toast.loading('Awaiting wallet confirmation...');
 
-        const tx = await selectedDat.contract.purchase(selectedDat.id, { value: priceInWei });
-        
-        setPurchaseStep('Processing transaction...');
-        setPurchaseProgress(50);
-        toast.loading('Processing transaction on the blockchain...', { id: toastId });
-
-        await tx.wait();
-
-        setPurchaseStep('Finalizing purchase...');
-        setPurchaseProgress(90);
-
-        await fetchDats();
-        await fetchRevenue(); // Re-fetch revenue after a successful purchase
-        setPurchaseSuccess(true);
-        setPurchaseProgress(100);
-        toast.success('Purchase Successful!', { id: toastId });
-        
-        setTimeout(() => {
+      selectedDat.contract.purchase(selectedDat.id, { value: priceInWei })
+        .then(tx => {
+            // Close modal and reset state immediately after transaction is submitted
             setIsModalOpen(false);
             setSelectedDat(null);
-            setProcessingPurchase(false);
-            setPurchaseProgress(0);
-            setPurchaseStep('');
-        }, 2000);
-      } catch (err) {
-          console.error("Purchase failed:", err);
-          const errorMessage = err.reason || "Purchase failed! See console for details.";
-          toast.error(errorMessage, { id: toastId });
-          setIsModalOpen(false); // Close modal on failure
-          setProcessingPurchase(false);
-          setPurchaseProgress(0);
-          setPurchaseStep('');
-      }
+            setProcessingPurchase(false); // Re-enable button for next time
+            setPurchaseSuccess(false);
+
+            const explorerUrl = `https://testnet-explorer.lazai.network/tx/${tx.hash}`;
+            const toastMessage = (
+                <span>
+                    Purchase submitted! It will confirm in the background. <a href={explorerUrl} target="_blank" rel="noopener noreferrer" className="text-purple-400 underline">View on Explorer</a>
+                </span>
+            );
+            toast.loading(toastMessage, { id: toastId, duration: 300000 }); // Keep toast open for 5 minutes
+
+            // Wait for the transaction to be mined in the background
+            waitForTransaction(tx, toastId);
+        })
+        .catch(err => {
+            // This catches errors from wallet rejection or other immediate submission issues
+            console.error("Purchase failed on submission:", err);
+            const errorMessage = err.reason || "Transaction rejected or failed to submit.";
+            toast.error(errorMessage, { id: toastId });
+            setProcessingPurchase(false); // Re-enable button on failure
+        });
   };
 
   const handleAccessData = async (dat) => {

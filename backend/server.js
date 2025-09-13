@@ -1,8 +1,11 @@
-require('dotenv').config();
+require('dotenv').config({ path: '../.env.development.local' });
 const express = require('express');
 const cors = require('cors');
 const { ethers } = require('ethers');
 const { Agent, WindowBufferMemory } = require('alith');
+const { put, list } = require('@vercel/blob');
+const path = require('path');
+
 
 // Import ABIs
 const LazaiDATArtifact = require('../src/lazaiDAT.json');
@@ -10,6 +13,9 @@ const UserDATArtifact = require('../src/userDAT.json');
 
 const app = express();
 const port = process.env.PORT || 3001;
+
+// Path for the off-chain metadata storage
+const METADATA_FILE = 'extended_metadata.json';
 
 // Ethers setup
 const provider = new ethers.JsonRpcProvider('https://testnet.lazai.network');
@@ -31,7 +37,7 @@ const alithAgent = new Agent({
     model: 'gemini-2.5-flash',
     agent_logs: false,
     apiKey: process.env.GEMINI_API_KEY,
-    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta",
     memory: new WindowBufferMemory({ window_size: 10}),
     preamble: `You are a helpful assistant for the LazAI Data Marketplace.
     Your goal is to assist users with their questions about the marketplace.
@@ -41,6 +47,46 @@ const alithAgent = new Agent({
     The native token is LAZAI.`,
    
 });
+
+// --- UTILITY FUNCTIONS ---
+const readMetadata = async () => {
+    try {
+        const { blobs } = await list({ prefix: METADATA_FILE, limit: 1 });
+        const metadataBlob = blobs.find(b => b.pathname === METADATA_FILE);
+
+        if (!metadataBlob) {
+            return {}; // File does not exist
+        }
+
+        const response = await fetch(metadataBlob.url);
+        if (!response.ok) {
+            // If the file is not found, it's not an error, just return empty
+            if (response.status === 404) {
+                return {};
+            }
+            throw new Error(`Failed to fetch metadata: ${response.statusText}`);
+        }
+        return await response.json();
+
+    } catch (error) {
+        console.error("Error reading metadata from Vercel Blob:", error);
+        return {}; // Return empty object on any error to prevent crashes
+    }
+};
+
+const writeMetadata = async (data) => {
+    try {
+        await put(METADATA_FILE, JSON.stringify(data, null, 2), {
+            access: 'public',
+            type: 'json',
+            allowOverwrite: true
+        });
+    } catch (error) {
+        console.error("Error writing metadata to Vercel Blob:", error);
+        throw error;
+    }
+};
+
 
 // Middleware
 app.use(cors());
@@ -115,6 +161,35 @@ app.post('/api/analyze-dat', async (req, res) => {
     }
 });
 
+// New endpoint to store extended off-chain metadata
+app.post('/api/metadata', async (req, res) => {
+    const { contractType, tokenId, dataSample, qualityScore, fraudScore, tags } = req.body;
+
+    if (!contractType || !tokenId || !dataSample) {
+        return res.status(400).json({ success: false, message: 'Missing required metadata fields.' });
+    }
+
+    try {
+        const metadata = await readMetadata();
+        const key = `${contractType}-${tokenId}`;
+        
+        metadata[key] = {
+            dataSample,
+            qualityScore,
+            fraudScore,
+            tags,
+        };
+
+        await writeMetadata(metadata);
+        res.json({ success: true, message: 'Metadata saved successfully.' });
+
+    } catch (error) {
+        console.error('Error saving metadata:', error);
+        res.status(500).json({ success: false, message: 'Failed to save extended metadata.' });
+    }
+});
+
+
 // Secure data access route
 app.get('/api/data/:contractType/:tokenId', async (req, res) => {
   const { contractType, tokenId } = req.params;
@@ -175,6 +250,7 @@ app.get('/api/dats', async (req, res) => {
 
   try {
     const fromWei = (num) => ethers.formatEther(num);
+    const extendedMetadata = await readMetadata();
 
     const fetchContractDats = async (contract, type) => {
       const supply = await contract.totalSupply();
@@ -184,6 +260,8 @@ app.get('/api/dats', async (req, res) => {
         try {
           const owner = await contract.ownerOf(id);
           const metadata = await contract.datMetadata(id);
+          const offChainData = extendedMetadata[`${type}-${id}`] || {};
+
           return {
             id,
             type,
@@ -191,6 +269,7 @@ app.get('/api/dats', async (req, res) => {
             description: metadata.description,
             price: parseFloat(fromWei(metadata.price)),
             owner,
+            ...offChainData, // Merge the off-chain data
           };
         } catch (e) {
           console.warn(`Could not fetch ${type} DAT ${id}:`, e.message);

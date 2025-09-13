@@ -33,3 +33,4 @@ ignition
 *.njsproj
 *.sln
 *.sw?
+.vercel

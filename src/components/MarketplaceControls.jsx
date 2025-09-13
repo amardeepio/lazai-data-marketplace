@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, ArrowDownUp, Filter } from 'lucide-react';
+import { Search, ArrowDownUp, Filter, User } from 'lucide-react';
 
 const MarketplaceControls = ({
   searchQuery,
@@ -8,9 +8,8 @@ const MarketplaceControls = ({
   setSortOption,
   filterType,
   setFilterType,
-  priceRange,
-  setPriceRange,
-  applyFilters,
+  filterToOwned,
+  setFilterToOwned,
 }) => {
   return (
     <div className="bg-gray-800/60 backdrop-blur-md p-4 rounded-xl shadow-lg border border-gray-700 mb-6 flex flex-col md:flex-row gap-4 items-center">
@@ -24,7 +23,7 @@ const MarketplaceControls = ({
           className="w-full bg-gray-700 text-white p-2 pl-10 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500"
         />
       </div>
-      <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
+      <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto items-center">
         <div className="relative">
           <ArrowDownUp className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
           <select
@@ -52,6 +51,15 @@ const MarketplaceControls = ({
             <option value="user">Community</option>
           </select>
         </div>
+        <label className="flex items-center gap-2 cursor-pointer text-white">
+          <input
+            type="checkbox"
+            checked={filterToOwned}
+            onChange={(e) => setFilterToOwned(e.target.checked)}
+            className="w-4 h-4 text-purple-600 bg-gray-700 border-gray-600 rounded focus:ring-purple-500 focus:ring-2"
+          />
+          Show only my DATs
+        </label>
       </div>
     </div>
   );

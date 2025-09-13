@@ -7,8 +7,13 @@ The core feature is **gated data access**, where only the current owner of a DAT
 ## Core Features
 
 - **Wallet Integration**: Connects to MetaMask to interact with the Lazai network.
-- **DAT Minting**: Users can upload a dataset file and mint a "Community DAT" with a name, description, and price.
-- **AI-Powered Minting**: Utilizes the **Lazai Alith Agentic Framework** to analyze datasets and suggest metadata (name, description, price) to streamline the minting process.
+- **DAT Minting**: Users can upload a dataset file and mint a "Community DAT".
+- **AI-Powered Analysis & Preview**: Before minting, users leverage the **Lazai Alith Agentic Framework** to analyze their data. The AI suggests metadata (name, description, price) and provides advanced insights, including:
+  - A **Data Quality Score** (1-10).
+  - A **Fraud Risk Score** (1-10).
+  - Relevant **keyword tags** for better discoverability.
+  - A **Data Preview** that is stored with the DAT's metadata.
+- **On-Demand Analysis**: Owners of DATs that were minted without an analysis can generate one at any time from the DAT's detail view.
 - **Official DATs**: The contract owner has the ability to mint special "Official DATs".
 - **Decentralized Marketplace**: Browse all Community and Official DATs available for purchase.
 - **On-Chain Purchasing**: Buy DATs from other users. The transaction, including payment and ownership transfer, is handled securely by the smart contract.

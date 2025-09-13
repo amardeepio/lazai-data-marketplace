@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ethers } from 'ethers';
 import axios from 'axios';
-import { UploadCloud, DollarSign, BarChart2, Share2, Wallet, CheckCircle, X, Shield, RefreshCw, Users, Crown, Download, Bot, Info, Clock, Hash, FileText } from 'lucide-react';
+import { UploadCloud, DollarSign, BarChart2, Share2, Wallet, CheckCircle, X, Shield, RefreshCw, Users, Crown, Download, Bot, Info, Clock, Hash, FileText, Eye } from 'lucide-react';
 import { useWallet } from './components/WalletContext';
 import toast, { Toaster } from 'react-hot-toast';
 import ChatWidget, { FloatingChatButton } from './components/ChatWidget';
@@ -123,7 +123,7 @@ const AnalysisResults = ({ results }) => {
 };
 
 
-const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title, icon, buttonText, disabled: formDisabled }) => {
+const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title, icon, buttonText, disabled: formDisabled, contractType }) => {
   const { account } = useWallet();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -153,6 +153,19 @@ const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title
       }
   };
 
+  const getFileSample = (file) => {
+      return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+              const text = e.target.result;
+              const lines = text.split('\n').slice(0, 21); // Header + 20 rows
+              resolve(lines.join('\n'));
+          };
+          reader.onerror = (e) => reject(e);
+          reader.readAsText(file);
+      });
+  };
+
   const handleAnalyze = async () => {
     if (!file) {
         toast.error('Please select a file first.');
@@ -162,37 +175,26 @@ const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title
     setAnalysisResult(null);
     const toastId = toast.loading('Analyzing data with Alith...');
 
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-        try {
-            const text = e.target.result;
-            const lines = text.split('\n').slice(0, 21); // Header + 20 rows
-            const textSample = lines.join('\n');
+    try {
+        const textSample = await getFileSample(file);
+        const response = await axios.post('/api/analyze-dat', { textSample });
 
-            const response = await axios.post('/api/analyze-dat', { textSample });
-
-            if (response.data.success) {
-                const analysis = response.data.analysis;
-                setName(analysis.name);
-                setDescription(analysis.description);
-                setPrice(analysis.price.toString());
-                setAnalysisResult(analysis);
-                toast.success('Analysis complete!', { id: toastId });
-            } else {
-                throw new Error(response.data.message || 'Analysis failed.');
-            }
-        } catch (err) {
-            console.error("Analysis failed:", err);
-            toast.error(err.message || 'An error occurred during analysis.', { id: toastId });
-        } finally {
-            setIsAnalyzing(false);
+        if (response.data.success) {
+            const analysis = response.data.analysis;
+            setName(analysis.name);
+            setDescription(analysis.description);
+            setPrice(analysis.price.toString());
+            setAnalysisResult(analysis);
+            toast.success('Analysis complete!', { id: toastId });
+        } else {
+            throw new Error(response.data.message || 'Analysis failed.');
         }
-    };
-    reader.onerror = () => {
-        toast.error('Failed to read file.', { id: toastId });
+    } catch (err) {
+        console.error("Analysis failed:", err);
+        toast.error(err.message || 'An error occurred during analysis.', { id: toastId });
+    } finally {
         setIsAnalyzing(false);
-    };
-    reader.readAsText(file);
+    }
   };
 
   const uploadFileToPinata = async (file) => {
@@ -231,6 +233,10 @@ const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title
         toast.error("Please select a valid file to upload.");
         return;
     }
+    if (!analysisResult) {
+        toast.error("Please analyze the data before minting.");
+        return;
+    }
     setError('');
     setMinting(true);
 
@@ -249,7 +255,29 @@ const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title
       
       setMintingStep('Minting DAT on the blockchain...');
       toast.loading('Minting DAT on the blockchain...', { id: toastId });
-      await tx.wait();
+      const receipt = await tx.wait();
+
+      // --- Save extended metadata off-chain ---
+      setMintingStep('Saving analysis data...');
+      toast.loading('Saving analysis data...', { id: toastId });
+
+      const transferEvent = receipt.logs.find(log => mintingContract.interface.parseLog(log)?.name === 'Transfer');
+      const tokenId = transferEvent ? mintingContract.interface.parseLog(transferEvent).args.tokenId.toString() : null;
+
+      if (tokenId) {
+          const dataSample = await getFileSample(file);
+          await axios.post('/api/metadata', {
+              contractType,
+              tokenId,
+              dataSample,
+              qualityScore: analysisResult.qualityScore,
+              fraudScore: analysisResult.fraudScore,
+              tags: analysisResult.tags,
+          });
+      } else {
+          console.warn('Could not find tokenId from minting transaction.');
+      }
+      // ----------------------------------------
 
       setMintingStep('Success!');
       toast.success('DAT Minted Successfully!', { id: toastId });
@@ -288,7 +316,7 @@ const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title
             <label className="flex-grow flex items-center justify-center px-4 py-3 bg-gray-700 text-gray-400 rounded-lg border border-dashed border-gray-600 cursor-pointer hover:bg-gray-600 hover:text-white transition">
               <UploadCloud size={20} className="mr-2"/>
               <span className="truncate">{file ? file.name : 'Upload Dataset File'}</span>
-              <input type="file" className="hidden" onChange={handleFileChange} accept={allowedFileTypes.join(',')} />
+              <input type="file" className="hidden" onChange={handleFileChange} accept={allowedFileTypes.join(',')}/>
             </label>
             <button 
                 type="button"
@@ -314,13 +342,14 @@ const DATMintingForm = ({ mintingContract, onMintSuccess, walletConnected, title
             <span>{mintingStep}</span>
           </div>
         ) : (
-          <button type="submit" disabled={minting || !walletConnected || formDisabled} className="w-full bg-purple-600 text-white p-3 rounded-lg font-bold hover:bg-purple-700 transition disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center">
+          <button type="submit" disabled={minting || !walletConnected || formDisabled || !analysisResult} className="w-full bg-purple-600 text-white p-3 rounded-lg font-bold hover:bg-purple-700 transition disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center">
             {buttonText}
           </button>
         )}
 
         {error && <p className="text-center text-red-500 text-sm mt-2">{error}</p>}
         {!walletConnected && <p className="text-center text-yellow-400 text-sm mt-2">Connect wallet to enable minting.</p>}
+        {walletConnected && !analysisResult && <p className="text-center text-yellow-400 text-sm mt-2">Please analyze the data before minting.</p>}
       </form>
     </Card>
   );
@@ -486,7 +515,10 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOption, setSortOption] = useState('date-desc');
   const [filterType, setFilterType] = useState('all');
+  const [filterToOwned, setFilterToOwned] = useState(false);
   const [priceRange, setPriceRange] = useState([0, 1000000]); // Default wide range
+  const [isAnalyzingExistingDat, setIsAnalyzingExistingDat] = useState(false);
+
 
   const filteredAndSortedDats = useMemo(() => {
     return dats
@@ -500,10 +532,10 @@ export default function App() {
         if (query && !dat.name.toLowerCase().includes(query) && !dat.description.toLowerCase().includes(query)) {
           return false;
         }
-        // Filter by Price Range (currently no UI for this)
-        // if (dat.price < priceRange[0] || dat.price > priceRange[1]) {
-        //   return false;
-        // }
+        // Filter by owned
+        if (filterToOwned && dat.owner.toLowerCase() !== account.toLowerCase()) {
+          return false;
+        }
         return true;
       })
       .sort((a, b) => {
@@ -523,7 +555,7 @@ export default function App() {
             return b.id - a.id;
         }
       });
-  }, [dats, searchQuery, sortOption, filterType, priceRange]);
+  }, [dats, searchQuery, sortOption, filterType, filterToOwned, account, priceRange]);
 
   const fetchDats = useCallback(async (forceRefresh = false) => {
     if (!contract || !userContract) return; // Contracts needed for re-association
@@ -599,7 +631,7 @@ export default function App() {
   }, [account, provider, contract, userContract]);
 
   useEffect(() => {
-    if (contract && userContract && provider && account) {
+    if (isConnected && contract && userContract && provider && account) {
       const FIVE_MINUTES_IN_MS = 5 * 60 * 1000;
       const cacheKey = `revenueCache_${account}`;
 
@@ -783,6 +815,67 @@ export default function App() {
     }
   };
 
+  const handleAnalyzeExistingDat = async (dat) => {
+    if (!account) {
+      toast.error('Please connect your wallet.');
+      return;
+    }
+    setIsAnalyzingExistingDat(true);
+    const toastId = toast.loading('Starting analysis... Step 1: Fetching data file.');
+
+    try {
+      // 1. Fetch data URL
+      const dataUrlResponse = await axios.get(`/api/data/${dat.type}/${dat.id}?userAddress=${account}`);
+      if (!dataUrlResponse.data.success) {
+        throw new Error(dataUrlResponse.data.message || 'Could not verify ownership to fetch data.');
+      }
+      
+      toast.loading('Step 2: Fetching content from IPFS...', { id: toastId });
+      const contentResponse = await axios.get(dataUrlResponse.data.dataUrl);
+      const fileContent = typeof contentResponse.data === 'object' ? JSON.stringify(contentResponse.data, null, 2) : contentResponse.data.toString();
+      
+      // 2. Create sample
+      const textSample = fileContent.split('\n').slice(0, 21).join('\n');
+
+      // 3. Analyze data
+      toast.loading('Step 3: Analyzing data with Alith AI...', { id: toastId });
+      const analysisResponse = await axios.post('/api/analyze-dat', { textSample });
+      if (!analysisResponse.data.success) {
+        throw new Error(analysisResponse.data.message || 'AI analysis failed.');
+      }
+      const analysis = analysisResponse.data.analysis;
+
+      // 4. Save metadata
+      toast.loading('Step 4: Saving analysis results...', { id: toastId });
+      await axios.post('/api/metadata', {
+        contractType: dat.type,
+        tokenId: dat.id,
+        dataSample: textSample,
+        qualityScore: analysis.qualityScore,
+        fraudScore: analysis.fraudScore,
+        tags: analysis.tags,
+      });
+
+      toast.success('Analysis and preview added successfully!', { id: toastId });
+
+      // 5. Refresh data
+      await fetchDats(true); // Force a refresh
+      
+      // Update the currently selected DAT in the modal
+      setSelectedDat(prev => ({
+          ...prev,
+          dataSample: textSample,
+          ...analysis
+      }));
+
+    } catch (error) {
+      console.error('Error analyzing existing DAT:', error);
+      toast.error(error.message || 'An unexpected error occurred.', { id: toastId });
+    } finally {
+      setIsAnalyzingExistingDat(false);
+    }
+  };
+
   return (
     <div className="bg-gray-900 text-white min-h-screen font-sans" style={{background: 'radial-gradient(circle at top, #1F2937, #111827)'}}>
       <Toaster
@@ -810,6 +903,7 @@ export default function App() {
                     title="Mint a Community DAT"
                     icon={<Users className="text-purple-400"/>}
                     buttonText="Mint My DAT"
+                    contractType="user"
                 />
             </div>
             <div className="lg:w-2/3">
@@ -827,6 +921,7 @@ export default function App() {
                       icon={<Shield className="text-yellow-400"/>}
                       buttonText="Mint Official DAT"
                       disabled={!isOwner}
+                      contractType="official"
                   />
               </div>
           )}
@@ -845,6 +940,8 @@ export default function App() {
               setSortOption={setSortOption}
               filterType={filterType}
               setFilterType={setFilterType}
+              filterToOwned={filterToOwned}
+              setFilterToOwned={setFilterToOwned}
               priceRange={priceRange}
               setPriceRange={setPriceRange}
             />
@@ -853,7 +950,7 @@ export default function App() {
         </main>
       </div>
 
-      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={selectedDat ? selectedDat.name : 'DAT Details'} disableClose={processingPurchase}>
+      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={selectedDat ? selectedDat.name : 'DAT Details'} disableClose={processingPurchase || isAnalyzingExistingDat}>
           {loadingDetails && <div className="flex justify-center items-center p-8"><RefreshCw className="animate-spin text-purple-400" size={48} /></div>}
           {!loadingDetails && selectedDat && datDetails && (
               <div>
@@ -882,7 +979,33 @@ export default function App() {
                       </div>
                   </div>
 
-                  <h4 className="text-lg font-semibold text-white mb-3">Provenance</h4>
+                  {/* AI Analysis and Preview Section */}
+                  {selectedDat.dataSample ? (
+                    <>
+                      {selectedDat.qualityScore && <AnalysisResults results={selectedDat} />}
+                      <div className="mt-4">
+                          <h4 className="text-lg font-semibold text-white mb-2 flex items-center gap-2"><Eye size={18}/> Data Preview</h4>
+                          <pre className="bg-gray-900/50 p-3 rounded-lg text-xs text-gray-300 overflow-x-auto max-h-40">{selectedDat.dataSample}</pre>
+                      </div>
+                    </>
+                  ) : (
+                     account && selectedDat.owner.toLowerCase() === account.toLowerCase() && (
+                        <div className="mt-4 p-4 border border-dashed border-gray-600 rounded-lg text-center">
+                            <p className="text-gray-400 mb-3">This DAT is missing the AI analysis and preview.</p>
+                            <button 
+                                onClick={() => handleAnalyzeExistingDat(selectedDat)}
+                                disabled={isAnalyzingExistingDat}
+                                className="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-700 transition disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center mx-auto"
+                            >
+                                <Bot size={18} className={`mr-2 ${isAnalyzingExistingDat ? 'animate-spin' : ''}`} />
+                                {isAnalyzingExistingDat ? 'Analyzing...' : 'Generate AI Analysis & Preview'}
+                            </button>
+                        </div>
+                     )
+                  )}
+
+
+                  <h4 className="text-lg font-semibold text-white mb-3 mt-6">Provenance</h4>
                   <ul className="space-y-2 text-xs">
                       {datDetails.history.map((item, index) => (
                           <li key={index} className="bg-gray-900/50 p-2 rounded-md">
